@@ -33,4 +33,4 @@ balance 是合约自身可用的原生币；reserves 是系统/代理代管的�
 
 ## 交付状态
 
-三条查询与三问回答已完成，原始证据随包提供。此文件是本地笔记；尚未发布成公开笔记 URL，也未在营地网站提交（你已要求暂停网站步骤提交）。
+三条查询与三问回答已完成，原始证据随公开仓库提供。公开笔记链接：https://github.com/louisluo0301-cell/payday-split/blob/main/docs/LASNA-FEES-NOTE.md 。营地网站尚未提交。

@@ -40,7 +40,8 @@
 | Local Anvil end-to-end (Transfer → react → callback → Split/Retained) | ✅ verified |
 | Demo mode / judge quick path | ✅ `?demo=1` |
 | Sepolia + Lasna deployment | ⏳ needs funded test wallet (see `docs/REMAINING_TASKS.md`) |
-| Public GitHub / DoraHacks submission | ⏳ owner action |
+| Public GitHub | ✅ https://github.com/louisluo0301-cell/payday-split |
+| DoraHacks submission | ⏳ pending |
 
 > Fixed amounts and percentages are **additive per bucket**; array order is the priority. The UI ships a fixed-first Freelancer preset.
 
