@@ -1,0 +1,16 @@
+{
+  "chainId": 11155111,
+  "network": "sepolia",
+  "rpcUrl": "https://ethereum-sepolia-rpc.publicnode.com",
+  "explorer": "https://sepolia.etherscan.io",
+  "lasnaRpc": "https://lasna-rpc.rnk.dev/",
+  "lasnaExplorer": "https://lasna.reactscan.net",
+  "token": "",
+  "split": "",
+  "reactive": "",
+  "proxy": "0xAa14d9Cd0f788Ca23d11805986C1d8bd035D23b4",
+  "deployer": "",
+  "savings": "0x000000000000000000000000000000000000dEaD",
+  "bps": 1000,
+  "deployedAt": ""
+}

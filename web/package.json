@@ -1,0 +1,22 @@
+{
+  "name": "payday-split-web",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "health": "node script/health.mjs",
+    "test": "node --test test/*.test.js",
+    "dev": "vite --host 127.0.0.1",
+    "build": "vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "local:watch": "node script/local-watch-loop.mjs",
+    "local:process": "node script/local-process.mjs"
+  },
+  "dependencies": {
+    "ethers": "^6.13.4"
+  },
+  "devDependencies": {
+    "happy-dom": "^21.0.4",
+    "vite": "^6.0.7"
+  }
+}

@@ -1,0 +1,88 @@
+Compiling 51 files with Solc 0.8.29
+Solc 0.8.29 finished in 4.37s
+Compiler run successful!
+Analysing contracts...
+Running tests...
+
+Ran 62 tests for test/PaydaySplit.t.sol:PaydaySplitTest
+[PASS] testFuzz_policyNeverExceedsCaps(uint96,uint96) (runs: 256, μ: 1122080, ~: 1115856)
+[PASS] testFuzz_previewMatchesExecution(uint96,uint16) (runs: 256, μ: 1354488, ~: 1355477)
+[PASS] testFuzz_waterfallNeverOverdraws(uint96,uint16,uint16) (runs: 256, μ: 1473616, ~: 1472871)
+[PASS] test_bpsCapPerBucket() (gas: 59092)
+[PASS] test_bucketsAreMirroredAndSubscribeTransfer() (gas: 942853)
+[PASS] test_budgetExhaustionStopsCallbacks() (gas: 1410090)
+[PASS] test_callbackIsIdempotent() (gas: 1714076)
+[PASS] test_constructorSubscribesToBucketsSet() (gas: 44444)
+[PASS] test_disableAllUnsubscribes() (gas: 1100682)
+[PASS] test_eightBucketsFitCallbackGasWithPolicy() (gas: 2498587)
+[PASS] test_emptyBucketIsRejected() (gas: 62518)
+[PASS] test_falseReturnTokenSkipsBucket() (gas: 767365)
+[PASS] test_fixedPlusPercentInOneBucket() (gas: 1286728)
+[PASS] test_fullWaterfall() (gas: 1710465)
+[PASS] test_getBucketsAndCount() (gas: 890135)
+[PASS] test_inactiveBucketIsSkipped() (gas: 1571071)
+[PASS] test_invalidPayeeIsRejected() (gas: 148796)
+[PASS] test_malformedReturnTokenSkipsBucket() (gas: 784178)
+[PASS] test_manualRunSplitRecoversWithoutCallback() (gas: 1145095)
+[PASS] test_maxBuckets() (gas: 84443)
+[PASS] test_noReturnTokenPaysBucket() (gas: 863771)
+[PASS] test_onlyProxyCanExecuteSplit() (gas: 50529)
+[PASS] test_onlySystemCanReact() (gas: 36288)
+[PASS] test_ownershipRequiresAcceptance() (gas: 143932)
+[PASS] test_partialAllowanceSkipsOnlyAffectedBuckets() (gas: 1581840)
+[PASS] test_pausedSplitRejectsCallback() (gas: 1388759)
+[PASS] test_policyCannotChangeAnotherUser() (gas: 1163500)
+[PASS] test_policyDailyCapIncludesManualAndCallback() (gas: 1941944)
+[PASS] test_policyDailyRolloverAndNoResetByEditing() (gas: 1485910)
+[PASS] test_policyExpiryAndMinimum() (gas: 1124367)
+[PASS] test_policyPauseBlocksQueuedCallback() (gas: 1975382)
+[PASS] test_policyReserveAboveBalanceBlocks() (gas: 1029904)
+[PASS] test_policyReserveProtectsWallet() (gas: 1102533)
+[PASS] test_policyRunCapPreservesPriority() (gas: 1149310)
+[PASS] test_previewWaterfallMatchesFormula() (gas: 888213)
+[PASS] test_priorityPartiallyFundsFixedBucket() (gas: 1565172)
+[PASS] test_reactiveAdminAndEmptyView() (gas: 268784)
+[PASS] test_reactiveDuplicatesAndPause() (gas: 1631887)
+[PASS] test_reactiveIgnoresOlderMirrorVersion() (gas: 602876)
+[PASS] test_reactiveMinPaycheck() (gas: 1440266)
+[PASS] test_reactivePauseStopsCallbacks() (gas: 1466489)
+[PASS] test_reactiveRejectsMalformedBuckets() (gas: 581519)
+[PASS] test_reactiveTransferFilters() (gas: 1824167)
+[PASS] test_reactiveUserBudget() (gas: 1865350)
+[PASS] test_recoverConsumesDelayedCallbackAndCannotReplay() (gas: 1700241)
+[PASS] test_recoveryKeyIsIsolatedByUser() (gas: 1931187)
+[PASS] test_reentrantTokenCannotDoubleSplit() (gas: 1815553)
+[PASS] test_resavingIdenticalRuleDoesNotBumpVersion() (gas: 1016395)
+[PASS] test_rescueAndPauseAdmin() (gas: 295633)
+[PASS] test_retainedEmitsWhenSpendingLeft() (gas: 1600166)
+[PASS] test_revertingBalanceReadStillPays() (gas: 917357)
+[PASS] test_revertingTokenSkipsBucket() (gas: 778800)
+[PASS] test_ruleVersionIncrementsAndReplacesBuckets() (gas: 1132165)
+[PASS] test_setBucketsRejectsEOAToken() (gas: 51634)
+[PASS] test_setReactiveOnlyOnce() (gas: 36815)
+[PASS] test_setReactiveOnlyOwner() (gas: 4996340)
+[PASS] test_staleRuleVersionIsRejected() (gas: 1585236)
+[PASS] test_totalBpsCap() (gas: 309554)
+[PASS] test_transferBucketCannotBeCalledExternally() (gas: 41620)
+[PASS] test_transferStateRollsBackWhenTokenReturnsFalse() (gas: 865091)
+[PASS] test_wrongReactiveIsRejected() (gas: 1299133)
+[PASS] test_zeroAllowanceLeavesEverythingRetained() (gas: 1515911)
+Suite result: ok. 62 passed; 0 failed; 0 skipped; finished in 134.99ms (631.51ms CPU time)
+
+Ran 1 test suite in 137.30ms (134.99ms CPU time): 62 tests passed, 0 failed, 0 skipped (62 total tests)
+
+╭-----------------------------+------------------+------------------+-----------------+----------------╮
+| File                        | % Lines          | % Statements     | % Branches      | % Funcs        |
++======================================================================================================+
+| script/Deploy.s.sol         | 0.00% (0/85)     | 0.00% (0/109)    | 0.00% (0/13)    | 0.00% (0/5)    |
+|-----------------------------+------------------+------------------+-----------------+----------------|
+| src/DemoUSDC.sol            | 30.00% (3/10)    | 16.67% (1/6)     | 0.00% (0/2)     | 50.00% (2/4)   |
+|-----------------------------+------------------+------------------+-----------------+----------------|
+| src/PaydaySplit.sol         | 96.67% (174/180) | 91.63% (208/227) | 71.88% (46/64)  | 95.24% (20/21) |
+|-----------------------------+------------------+------------------+-----------------+----------------|
+| src/PaydaySplitReactive.sol | 95.12% (117/123) | 92.94% (158/170) | 69.70% (23/33)  | 92.31% (12/13) |
+|-----------------------------+------------------+------------------+-----------------+----------------|
+| test/PaydaySplit.t.sol      | 89.13% (82/92)   | 89.29% (50/56)   | 100.00% (1/1)   | 89.47% (34/38) |
+|-----------------------------+------------------+------------------+-----------------+----------------|
+| Total                       | 76.73% (376/490) | 73.42% (417/568) | 61.95% (70/113) | 83.95% (68/81) |
+╰-----------------------------+------------------+------------------+-----------------+----------------╯

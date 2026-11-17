@@ -1,0 +1,27 @@
+{
+  "recordedAtUtc": "2026-11-17T13:29:22.1573496Z",
+  "chainId": "5318007",
+  "block": "8573855",
+  "rpc": "https://lasna-rpc.rnk.dev/",
+  "system": "0x8888888888888888888888888888888888888888",
+  "entries": [
+    {
+      "method": "_gasPriceCoeffPer1000",
+      "command": "cast call 0x8888888888888888888888888888888888888888 '_gasPriceCoeffPer1000()(uint256)' --rpc-url https://lasna-rpc.rnk.dev/ --block 8573855 --chain 5318007",
+      "output": "1000",
+      "value": "1000"
+    },
+    {
+      "method": "_extraGas",
+      "command": "cast call 0x8888888888888888888888888888888888888888 '_extraGas()(uint256)' --rpc-url https://lasna-rpc.rnk.dev/ --block 8573855 --chain 5318007",
+      "output": "100000 [1e5]",
+      "value": "100000"
+    },
+    {
+      "method": "_maxChargeGas",
+      "command": "cast call 0x8888888888888888888888888888888888888888 '_maxChargeGas()(uint256)' --rpc-url https://lasna-rpc.rnk.dev/ --block 8573855 --chain 5318007",
+      "output": "50000 [5e4]",
+      "value": "50000"
+    }
+  ]
+}
