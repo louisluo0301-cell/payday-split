@@ -278,6 +278,24 @@
             </div>
           </article>
 
+          <article class="card card-planning">
+            <div class="card-head"><h3>Funding goals</h3><span class="pill pill-soft">v6</span></div>
+            <p class="fineprint">Cap each destination's cumulative payouts. Once funded, later income skips it. Zero disables the target. Start a new cycle explicitly when the next bill is due. Changing destinations creates a fresh rule version and clears its goals.</p>
+            <p id="goals-status" class="fineprint" role="status"></p>
+            <div id="goals-list"></div>
+            <div class="execution-preview">
+              <div class="card-head"><h4 id="execution-title">If run now</h4><button id="execution-refresh" class="btn btn-small btn-outline" type="button">Check execution preview</button></div>
+              <p id="execution-result" role="status">Connect a wallet, or use demo mode, to check goals, spending controls, balance and allowance.</p>
+              <p class="fineprint">Uses the sample amount above. Live checks use saved onchain rules and the current wallet balance, assuming standard token transfers succeed. The destination chart above is an unconstrained draft preview.</p>
+            </div>
+            <details class="plan-backup"><summary>Back up or restore a plan</summary>
+              <p class="fineprint">Includes destination labels, targets and control settings. Restores a draft for this network and token; save destinations, controls and each goal separately. Paid progress and allowances are never imported.</p>
+              <button id="plan-export" class="btn btn-small btn-outline" type="button">Download plan JSON</button>
+              <label for="plan-json">Plan JSON</label><textarea id="plan-json" rows="5" maxlength="50000" placeholder="Paste your PaydaySplit plan backup"></textarea>
+              <button id="plan-import" class="btn btn-small btn-outline" type="button">Restore draft</button>
+            </details>
+          </article>
+
           <article class="card card-activity">
             <div class="card-head">
               <h3>Waterfall runs</h3>

@@ -8,6 +8,7 @@ import {
   parseUnits,
 } from "ethers";
 import { calculateRun } from "./waterfall.js";
+import { createPlanning } from "./planning.js";
 
 let demoPolicy = {};
 let demoSpent = 0n;
@@ -34,6 +35,7 @@ async function savePolicy() {
     if (state.demoMode) {
       demoPolicy = policy;
       document.querySelector("#policy-status").textContent = "Demo controls saved. The next sample run applies these limits.";
+      planner.preview();
       return;
     }
     if (!state.signer) { toast("Connect your wallet to save controls.", true); return; }
@@ -88,6 +90,9 @@ const SPLIT_ABI = [
   "function setPolicy(address token, tuple(uint96 reserve,uint96 maxPerRun,uint96 dailyLimit,uint96 minIncome,uint64 validUntil,bool paused) policy)",
   "function policies(address user,address token) view returns (uint96 reserve,uint96 maxPerRun,uint96 dailyLimit,uint96 minIncome,uint64 validUntil,bool paused)",
   "function dailySpend(address user,address token) view returns (uint256 day,uint256 amount)",
+  "function setBucketGoal(address token,uint256 index,uint256 expectedVersion,uint96 target,bool newCycle)",
+  "function bucketGoals(address user,address token,uint256 version,uint256 index) view returns (uint96 target,uint96 paid,uint64 cycle)",
+  "function previewExecution(address user,address token,uint256 paycheck) view returns (uint256[] amounts,uint256 retained,uint8 blocked)",
   "event BucketsSet(address indexed user, address indexed token, uint256 indexed version, address[] payees, uint96[] fixedAmounts, uint16[] bps, bool[] active)",
   "event Split(address indexed user, address indexed token, address indexed payee, uint256 paycheck, uint256 amount, uint256 bucketIndex, uint256 version, uint256 originTxHash, uint256 logIndex)",
   "event Retained(address indexed user, address indexed token, uint256 amount, uint256 version, uint256 originTxHash, uint256 logIndex)",
@@ -201,6 +206,20 @@ const state = {
   mode: "personal",
   demoMode,
 };
+
+const planner = createPlanning({
+  state, deployment, chainId, $, toast, bucketFromEditor, renderBuckets, updateSummary,
+  readPolicy: readPolicyEditor,
+  getPolicy: () => demoPolicy,
+  getSpent: () => Math.floor(Date.now() / 86400000) === demoDay ? demoSpent : 0n,
+  writePolicy: (policy) => {
+    for (const key of ["reserve","maxPerRun","dailyLimit","minIncome"]) $(`#policy-${key}`).value = policy[key];
+    $("#policy-paused").checked = policy.paused;
+    const date = BigInt(policy.validUntil) > 0n ? new Date(Number(policy.validUntil) * 1000) : null;
+    $("#policy-expiry").value = date ? new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0,16) : "";
+    policyDirty = true;
+  },
+});
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                             */
@@ -468,6 +487,7 @@ async function connect() {
 }
 
 function disconnect() {
+  planner.clear();
   policyDirty = false;
   state.provider = null;
   state.signer = null;
@@ -555,6 +575,8 @@ async function refreshAll() {
     if (!state.dirty) await loadRule();
     renderConnected();
     await loadPolicy();
+    await planner.load();
+    await planner.preview();
     await loadActivity();
     await loadReactiveStatus();
   } catch (err) {
@@ -819,6 +841,7 @@ function updateSummary() {
     $("#save-rule").disabled = false;
     $("#save-rule").textContent = state.onchainBucketCount ? "Update waterfall" : "Save waterfall";
   }
+  planner.sync();
 }
 
 function updateModeUI() {
@@ -888,6 +911,7 @@ function renderAllowance() {
   btn.disabled = !state.signer && !state.demoMode;
   btn.textContent = approved ? "Update" : "Approve";
   pill.textContent = approved ? `Allowance: ${fmt(state.allowance)}` : "Allowance —";
+  planner.preview();
 }
 
 function renderFaucet() {
@@ -1267,6 +1291,7 @@ function skipReason(reason) {
       2: "Balance or allowance too low",
       3: "Token transfer failed",
       4: "Bucket is inactive",
+      5: "Funding goal reached",
     }[reason] || "Skipped by the waterfall"
   );
 }
@@ -1398,7 +1423,7 @@ function runDemoIncome(silent = false) {
   const day = Math.floor(Date.now() / 86400000);
   if (day !== demoDay) { demoSpent = 0n; demoDay = day; }
   const result = calculateRun(state.buckets.map(bucketFromEditor), paycheck,
-    state.balance + paycheck, state.allowance, demoPolicy, demoSpent);
+    state.balance + paycheck, state.allowance, demoPolicy, demoSpent, undefined, planner.getGoals());
   const { splits } = result;
   const remaining = Number(formatUnits(result.retained, state.decimals));
   demoSpent += result.paid;
@@ -1422,6 +1447,7 @@ function runDemoIncome(silent = false) {
   if (state.demoMode) setText("token-balance", `${fmt(state.balance)} ${state.symbol}`);
   renderActivity();
   renderAllowance();
+  planner.record(splits);
   if (!silent) toast(`Sample run: ${fmtAmount(sample - remaining)} routed, ${fmtAmount(remaining)} retained.`);
 }
 
@@ -1676,6 +1702,7 @@ function applyImport() {
 }
 
 function wire() {
+  planner.wire();
   $("#recover-income").addEventListener("click", async () => {
     if (state.demoMode) { toast("Recovery needs an onchain Transfer event. Sample runs are simulated."); return; }
     if (!state.signer || state.busy) return;

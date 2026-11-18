@@ -2619,6 +2619,19 @@ input[type="range"]::-moz-range-thumb {
   font-size: 9px;
 }
 .policy-panel { border-top: 1px solid var(--line, #deded3); margin-top: 20px; padding-top: 18px; }
+.card-planning { grid-column: 1 / -1; }
+.goal-row { display: grid; grid-template-columns: minmax(120px,1fr) minmax(100px,180px) auto auto; gap: 12px; align-items: center; padding: 14px 0; border-bottom: 1px solid var(--line); }
+.goal-row label { display: grid; gap: 5px; font-size: 12px; }
+.goal-row input[type=number], .plan-backup textarea { width: 100%; min-width: 0; box-sizing: border-box; padding: 9px; border: 1px solid var(--line); border-radius: 6px; }
+.goal-row progress { width: 100%; max-width: 220px; accent-color: var(--green, #1d6a4a); }
+.goal-progress { display: grid; gap: 5px; font-size: 12px; overflow-wrap: anywhere; }
+.goal-cycle { display: flex !important; align-items: center; }
+.execution-preview { margin: 22px 0; padding: 18px; background: #f2f5ed; border-radius: 10px; }
+.execution-preview .card-head { margin-bottom: 10px; flex-wrap: wrap; }
+.plan-backup { margin-top: 18px; }
+.plan-backup label { display: block; margin: 12px 0 6px; }
+.plan-backup textarea { resize: vertical; font-family: monospace; }
+@media (max-width: 700px) { .goal-row { grid-template-columns: minmax(0,1fr) minmax(0,1fr); } }
 .policy-panel h4 { margin: 0 0 8px; }
 .policy-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 14px 0; }
 .policy-grid label { font-size: 12px; display: grid; gap: 6px; min-width: 0; }

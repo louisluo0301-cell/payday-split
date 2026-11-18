@@ -151,7 +151,7 @@ Residual risk: a malicious token can still emit fake `Transfer` logs or lie abou
 
 ## 6. Testing
 
-`forge test` covers 62 cases:
+`forge test` covers 72 cases:
 
 - constructor subscription to `BucketsSet`;
 - mirroring arrays + version + dynamic Transfer subscription;
@@ -181,3 +181,9 @@ A local Anvil harness (`web/script/local-watcher.mjs`) exercises the same path o
 ## v5 controls and limits
 
 See [UPGRADE-v5.md](UPGRADE-v5.md) for current policy semantics, recovery, token support, validation limits and migration. Rule and policy mutations are nonReentrant. Original coverage percentages are historical v4 data.
+
+## v6 goals, previews and backup boundaries
+
+Only the user can set a goal for their current token/rule version. Paid progress increases after successful transfers; target edits preserve progress, explicit new cycles reset it. Real bucket changes create fresh goals; identical saves preserve them. Version-checked goal updates prevent a stale UI from configuring a different rule. These controls apply immediately to queued callbacks of the same version. Targets do not automatically reset on a calendar boundary.
+
+`previewExecution` assumes standard ERC20 transfer success and current state; it cannot prove future execution. Backup import validates the chain, token, precision, amounts and recognized fields, stages a draft, and never restores paid progress or grants allowances. New core deployment is required for v6. See [UPGRADE-v6.md](UPGRADE-v6.md) and the six-dimension future threat model in [OPTIMIZATION-PLAN.md](OPTIMIZATION-PLAN.md). No independent audit has been performed.

@@ -1,0 +1,49 @@
+{
+  "note": "Disposable local Anvil + MockSystem/MockProxy only. Not public testnet delivery.",
+  "chainId": 31337,
+  "token": "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512",
+  "split": "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0",
+  "ruleVersion": "1",
+  "goalTx": "0x8a99608eef2b5ef505744dc33267a8aab4db7a778a2952ebefe2d9a8c3c66998",
+  "target": "350000000",
+  "paid": "350000000",
+  "runs": [
+    {
+      "incomeTx": "0x998f7e42f43239b41e15ad0a58b6955e9a2384defb62bfe298722b94566a9145",
+      "reactTx": "0x25ef5fadff843eddd09cf71efaee59f67e3b2ba2af24539e098377a35f52211b",
+      "callbackTx": "0x56dec6327968259e0af66b306149a33d53407573501daeacae25b1e475497cba",
+      "replayTx": "0x6dd25bb56518967e97a8c109ac6ce6c88ddc668359f5ca6571f02fbf7082d5a8",
+      "amounts": [
+        "300000000",
+        "250000000",
+        "150000000"
+      ],
+      "retained": "300000000"
+    },
+    {
+      "incomeTx": "0xbc9d5dd388220b0d40fccb36689e868773d6f3beb21ceeef12c55a9cfa380622",
+      "reactTx": "0x4bb05a5d41b07f3d5dc43029979237cdd1e5a619c9952b50676abbb2de083dcf",
+      "callbackTx": "0x1527002e4d3ef3e583cd542a1fe1d30c21f8d26262d1f477ecda35a952713894",
+      "replayTx": "0x25fba7dd3968ff037fe040ec195b430c627606293fb4d605116ee46d28a85c10",
+      "amounts": [
+        "50000000",
+        "250000000",
+        "150000000"
+      ],
+      "retained": "550000000"
+    },
+    {
+      "incomeTx": "0x39556df6268ab5b19df153e4f0e3ceaaf2ef341fb711ec15911b50a4b74d1f71",
+      "reactTx": "0x3d55fc10cab344a299f5d29086d4be9064e733d80502f68772871751eb6b988f",
+      "callbackTx": "0xd0b3e44b979e40908c3926a2eda393c90560227918ca8c05906b4bbb89f61aa2",
+      "replayTx": "0x84471884fd49463014cf44ad3c97ed03d40bd49295fdd3ceffdc20d1daf68c85",
+      "amounts": [
+        "0",
+        "250000000",
+        "150000000"
+      ],
+      "retained": "600000000"
+    }
+  ],
+  "recordedAt": "2026-11-18T01:37:35.976Z"
+}

@@ -1,5 +1,5 @@
 // Integer token units throughout. Shared by the demo and regression tests.
-export function calculateRun(buckets, paycheck, balance, allowance, policy = {}, spentToday = 0n, now = Math.floor(Date.now() / 1000)) {
+export function calculateRun(buckets, paycheck, balance, allowance, policy = {}, spentToday = 0n, now = Math.floor(Date.now() / 1000), goals = []) {
   const { reserve = 0n, maxPerRun = 0n, dailyLimit = 0n, minIncome = 0n, validUntil = 0n, paused = false } = policy;
   const blocked = paused || (validUntil > 0n && BigInt(now) >= validUntil) || paycheck < minIncome;
   const min = (a, b) => a < b ? a : b;
@@ -12,7 +12,9 @@ export function calculateRun(buckets, paycheck, balance, allowance, policy = {},
   buckets.forEach((bucket, bucketIndex) => {
     if (!bucket.active) return;
     const requested = bucket.fixedAmount + paycheck * BigInt(bucket.bps) / 10000n;
-    const amount = min(min(requested, remaining), budget);
+    let amount = min(min(requested, remaining), budget);
+    const goal = goals[bucketIndex];
+    if (goal?.target > 0n) amount = min(amount, goal.target > goal.paid ? goal.target - goal.paid : 0n);
     if (amount <= 0n || amount > balance || amount > allowance) return;
     remaining -= amount; budget -= amount; balance -= amount; allowance -= amount;
     splits.push({payee: bucket.payee, amount, bucketIndex, paycheck});
