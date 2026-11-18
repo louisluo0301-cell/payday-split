@@ -1,6 +1,6 @@
-param([string]$Version = 'v6', [string]$OutputDirectory = '')
+param([string]$Version = 'v7', [string]$OutputDirectory = '')
 $ErrorActionPreference = 'Stop'
-if ($Version -notmatch '^v[0-9]+$') { throw 'Version must look like v6.' }
+if ($Version -notmatch '^v[0-9]+$') { throw 'Version must look like v7.' }
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $releaseRoot = Join-Path (Split-Path -Parent $projectRoot) 'release'
 if ($OutputDirectory) { $releaseRoot = [IO.Path]::GetFullPath($OutputDirectory) }

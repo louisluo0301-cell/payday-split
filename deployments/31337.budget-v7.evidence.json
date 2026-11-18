@@ -1,0 +1,63 @@
+{
+  "note": "Disposable local Anvil + MockSystem/MockProxy only. Not public testnet delivery.",
+  "chainId": 31337,
+  "token": "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512",
+  "split": "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0",
+  "ruleVersion": "3",
+  "goalTx": "0x9497eaca60481201ce4c49e50186a13955ba43ce574a531a3541ec6bf80c7c7c",
+  "target": "350000000",
+  "paid": "300000000",
+  "cycle": "2",
+  "budgetMode": true,
+  "runs": [
+    {
+      "incomeTx": "0xaac1ea26e72e8f4eee4c22c84703c6df841c7839655e7ca62fc3edbeb13d255c",
+      "reactTx": "0x2d2a4744adc50b4b9927dd03210e294284859bdfb431983141a460b05cd6e58b",
+      "callbackTx": "0x186ac8c72bbfe362f3d8d7c98556da77e60597ebb68e054a72f99adf5fa53ee7",
+      "replayTx": "0x590fea775d7552acd6cd05516daba6bbffa7ea83e6c282aca7765d7510575a1d",
+      "amounts": [
+        "300000000",
+        "180000000",
+        "120000000"
+      ],
+      "retained": "400000000"
+    },
+    {
+      "incomeTx": "0xdc300fe132087db991c991766bb30a4495b18e429c7102b756404fc9d77b33de",
+      "reactTx": "0x5768af32604a96968b54cb6dcdab8661342cd001fd1efb91224fbfc3bf6190bf",
+      "callbackTx": "0x505cb745423b4882ae5f7bf399d222424a7795ab3870a672be7374b4ddf44c18",
+      "replayTx": "0xe3b7075d00b5d625667db50adf8804c7d484ad26322792efbfd582b87c506f0d",
+      "amounts": [
+        "50000000",
+        "180000000",
+        "120000000"
+      ],
+      "retained": "650000000"
+    },
+    {
+      "incomeTx": "0xdbbba2db24d7c86e516cab57b3cb12c1dc945fe7f53b3db50616f328555c5982",
+      "reactTx": "0xc6cdaf2f304dea3d77864f0b1333fafd58f876d845d493d3504113ab0bd230cc",
+      "callbackTx": "0xbbd9e76bef50b493ee40c14b30e79bfaa58b0382674896c7b5230eb5b6a26b49",
+      "replayTx": "0xd0d995100a1fd0abd89d1971173ee1aaa4b5c0706b6a964e2d2cbd0c305f5472",
+      "amounts": [
+        "0",
+        "180000000",
+        "120000000"
+      ],
+      "retained": "700000000"
+    },
+    {
+      "incomeTx": "0xd35df6aa4c2a6745889a2aeb553782f1ffde01d46e9d1719bd7292e54912aa65",
+      "reactTx": "0xc85204b38a3bb3f7153111719be61ccfaf0dfe93474640766b9fe4ca35310398",
+      "callbackTx": "0x9df402a304ea1f3a440bb98a73890de400c22ab0f5094e5f6e5d99b900d72c61",
+      "replayTx": "0xe199fae8f67495b0a8e2e28ad15898dc260980ff52acf21586cd89729958bcea",
+      "amounts": [
+        "300000000",
+        "180000000",
+        "120000000"
+      ],
+      "retained": "400000000"
+    }
+  ],
+  "recordedAt": "2026-11-18T05:04:49.716Z"
+}

@@ -1,0 +1,83 @@
+[
+  {
+    "repository": "0xSplits/splits-waterfall",
+    "url": "https://github.com/0xSplits/splits-waterfall",
+    "commit": "f13f3e15511d848ee976ea306dcc17c67b733ce1",
+    "license": "GPL-3.0",
+    "paths": [
+      "LICENSE",
+      "script/WaterfallModuleFactory.s.sol",
+      "src/WaterfallModule.sol",
+      "src/WaterfallModuleFactory.sol",
+      "test/WaterfallModule.t.sol",
+      "test/WaterfallModuleFactory.t.sol",
+      "test/WaterfallReentrancy.sol"
+    ]
+  },
+  {
+    "repository": "0xSplits/splits-contracts-monorepo",
+    "url": "https://github.com/0xSplits/splits-contracts-monorepo",
+    "commit": "23e9ef64c918205214fc23b2ff89fa590a32efc2",
+    "license": "GPL-3.0",
+    "paths": [
+      "LICENSE",
+      "packages/splits-v2/src/splitters/pull/PullSplit.sol",
+      "packages/splits-v2/src/splitters/pull/PullSplitFactory.sol",
+      "packages/splits-v2/src/splitters/push/PushSplit.sol",
+      "packages/splits-v2/src/splitters/push/PushSplitFactory.sol",
+      "packages/splits-v2/test/splitters/PullSplit.t.sol",
+      "packages/splits-v2/test/splitters/PushSplit.t.sol"
+    ]
+  },
+  {
+    "repository": "LlamaPay/llamapay",
+    "url": "https://github.com/LlamaPay/llamapay",
+    "commit": "90d18e11b94b02208100b3ac8756955b1b726d37",
+    "license": null,
+    "paths": [
+      "contracts/LlamaPay.sol",
+      "v2/LlamaPay.sol"
+    ]
+  },
+  {
+    "repository": "Reactive-Network/reactive-lib-omni",
+    "url": "https://github.com/Reactive-Network/reactive-lib-omni",
+    "commit": "3ade0dcf1d27e67e5783ef807e73a1b9e0c0cce8",
+    "license": null,
+    "paths": [
+      "src/base/AbstractCallback.sol",
+      "src/interfaces/IReactive.sol"
+    ]
+  },
+  {
+    "repository": "sablier-labs/flow",
+    "url": "https://github.com/sablier-labs/flow",
+    "commit": "a0faf196c3ac684d69ba285f2abb14f4988b4732",
+    "license": "NOASSERTION",
+    "paths": [
+      "SECURITY.md",
+      "src/SablierFlow.sol",
+      "src/interfaces/ISablierFlow.sol"
+    ]
+  },
+  {
+    "repository": "superfluid-org/protocol-monorepo",
+    "url": "https://github.com/superfluid-org/protocol-monorepo",
+    "commit": "d5296cd2362cea8b38cc7c4cba26bad9833fb665",
+    "license": "NOASSERTION",
+    "paths": [
+      "packages/ethereum-contracts/contracts/agreements/ConstantFlowAgreementV1.sol",
+      "packages/ethereum-contracts/contracts/apps/SuperTokenV1Library.sol",
+      "packages/ethereum-contracts/contracts/interfaces/agreements/IConstantFlowAgreementV1.sol"
+    ]
+  },
+  {
+    "repository": "Reactive-Network/reactive-smart-contract-demos",
+    "url": "https://github.com/Reactive-Network/reactive-smart-contract-demos",
+    "commit": "6fd02ce56d110762b9cecbacbf4374aa5951d491",
+    "license": null,
+    "paths": [
+      "src/demos/cron/CronDemo.sol"
+    ]
+  }
+]

@@ -151,7 +151,7 @@ Residual risk: a malicious token can still emit fake `Transfer` logs or lie abou
 
 ## 6. Testing
 
-`forge test` covers 72 cases:
+`forge test` covers 87 cases:
 
 - constructor subscription to `BucketsSet`;
 - mirroring arrays + version + dynamic Transfer subscription;
@@ -162,7 +162,7 @@ Residual risk: a malicious token can still emit fake `Transfer` logs or lie abou
 - partial allowance: only affected bucket skipped;
 - zero allowance: everything retained;
 - reverting transfer / false-return / no-return / malformed-return token;
-- reverting `balanceOf` read still attempts the transfer;
+- reverting or gas-exhausting balance/allowance reads fail closed with zero spending capacity;
 - reentrant token is blocked by `nonReentrant`;
 - stale version rejected; older mirror replay ignored; identical re-save does not bump version;
 - duplicate callback;
@@ -182,8 +182,8 @@ A local Anvil harness (`web/script/local-watcher.mjs`) exercises the same path o
 
 See [UPGRADE-v5.md](UPGRADE-v5.md) for current policy semantics, recovery, token support, validation limits and migration. Rule and policy mutations are nonReentrant. Original coverage percentages are historical v4 data.
 
-## v6 goals, previews and backup boundaries
+## v7 goals, cycles, previews and backup boundaries
 
-Only the user can set a goal for their current token/rule version. Paid progress increases after successful transfers; target edits preserve progress, explicit new cycles reset it. Real bucket changes create fresh goals; identical saves preserve them. Version-checked goal updates prevent a stale UI from configuring a different rule. These controls apply immediately to queued callbacks of the same version. Targets do not automatically reset on a calendar boundary.
+Only the user can set a goal for their current token/rule version. Paid progress follows stable bucket identities across reorder, weight and mode edits. A new payee requires a new ID. Target edits preserve progress; manual new cycles, fixed-duration boundaries and changed schedules reset progress. Version-checked writes reject stale configuration. Schedule/policy/target edits apply immediately to queued callbacks. Cycles use destination execution time and are not calendar months; changing cycles does not clear today's spending.
 
-`previewExecution` assumes standard ERC20 transfer success and current state; it cannot prove future execution. Backup import validates the chain, token, precision, amounts and recognized fields, stages a draft, and never restores paid progress or grants allowances. New core deployment is required for v6. See [UPGRADE-v6.md](UPGRADE-v6.md) and the six-dimension future threat model in [OPTIMIZATION-PLAN.md](OPTIMIZATION-PLAN.md). No independent audit has been performed.
+`previewExecution` assumes standard ERC20 transfer success and current state; it cannot prove future execution. Backup v2 validates chain, token, precision, amounts, mode and schedule, stages a draft, and never restores paid history or allowances. Transfer-tax, rebasing and callback tokens require separate adapters. Token reads are bounded to 30,000 gas and bucket self-calls to 120,000 gas; high-cost tokens can be skipped. New deployment is required. See [UPGRADE-v7.md](UPGRADE-v7.md) and [CODE-REVIEW-v7.md](CODE-REVIEW-v7.md), including the unresolved build dependency advisory. No independent audit has been performed.

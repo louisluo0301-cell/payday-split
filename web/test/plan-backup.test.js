@@ -5,6 +5,17 @@ const context={chainId:11155111,token:'0x000000000000000000000000000000000000000
 const plan=()=>({schema:'paydaysplit.plan',version:1,...context,
   buckets:[{label:'Rent',payee:'0x0000000000000000000000000000000000000001',fixed:'300',bps:'0',active:true}],
   policy:{reserve:'200',maxPerRun:'1000',dailyLimit:'3000',minIncome:'10',validUntil:'0',paused:false},goalTargets:['3000']});
+test('v2 round-trip includes mode/cycles and v1 safely defaults to manual waterfall',()=>{
+  const p={...plan(),version:2,allocationMode:1,cycle:{anchor:'1700000000',duration:604800}};
+  p.buckets[0].fixed='0';p.buckets[0].bps='50';
+  const r=parsePlan(JSON.stringify(p),context);
+  assert.equal(r.allocationMode,1);assert.deepEqual(r.cycle,p.cycle);
+  assert.deepEqual(parsePlan(JSON.stringify(plan()),context).cycle,{anchor:'0',duration:0});
+  for(const patch of [{allocationMode:2},{cycle:{anchor:'-1',duration:604800}},{cycle:{anchor:'1',duration:60}},{cycle:{anchor:'1',duration:0}}]) {
+    assert.throws(()=>parsePlan(JSON.stringify({...p,...patch}),context));
+  }
+  p.buckets[0].fixed='1';assert.throws(()=>parsePlan(JSON.stringify(p),context));
+});
 test('plan round-trip preserves amounts and strips unrecognized sensitive fields',()=>{
   const p=plan(); p.privateKey='do-not-import'; p.paid='99999'; p.policy.allowance='9999';
   const r=parsePlan(JSON.stringify(p),context);

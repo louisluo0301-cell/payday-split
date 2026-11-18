@@ -6,13 +6,8 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 
-Get-Content ".env" | ForEach-Object {
-    $line = $_.Trim()
-    if ($line -and -not $line.StartsWith("#") -and $line.Contains("=")) {
-        $i = $line.IndexOf("=")
-        [Environment]::SetEnvironmentVariable($line.Substring(0, $i).Trim(), $line.Substring($i + 1).Trim(), "Process")
-    }
-}
+. (Join-Path $PSScriptRoot 'env-loader.ps1')
+Import-PaydayEnv (Join-Path $root '.env')
 
 $destRpc = if ($env:DEST_RPC_URL) { $env:DEST_RPC_URL } else { $env:SEPOLIA_RPC_URL }
 $lasna = $env:LASNA_RPC_URL
@@ -29,8 +24,10 @@ $explorer = switch ($chainId) {
     default { "" }
 }
 
-function Call([string]$rpc, [string]$to, [string]$sig) {
-    (& cast call --rpc-url $rpc $to $sig 2>$null | Out-String).Trim()
+function Call([string]$rpc, [string]$to, [string]$sig, [Parameter(ValueFromRemainingArguments=$true)][string[]]$callArgs) {
+    $value = & cast call --rpc-url $rpc $to $sig @callArgs 2>&1 | Out-String
+    if ($LASTEXITCODE -ne 0) { throw "Contract read failed: $sig" }
+    $value.Trim()
 }
 
 Write-Host "`n== 1) origin chain ($chainId)" -ForegroundColor Cyan
@@ -38,7 +35,7 @@ Write-Host "   token   $token"
 Write-Host "   user    $user"
 $block = [int64](& cast block-number --rpc-url $destRpc)
 $from = [Math]::Max(0, $block - 5000)
-Write-Host "   recent Transfer logs to $user (last 5000 blocks):"
+Write-Host "   recent token Transfer logs, all recipients (last 5000 blocks):"
 & cast logs --rpc-url $destRpc --address $token --from-block $from "Transfer(address indexed from, address indexed to, uint256 value)" 2>$null |
     Select-String -Pattern "transactionHash|blockNumber|data" | Select-Object -Last 12
 

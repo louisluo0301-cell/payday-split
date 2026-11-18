@@ -18,16 +18,8 @@ if (-not (Test-Path ".env")) {
     throw "Missing .env. Copy .env.example to .env and fill PRIVATE_KEY."
 }
 
-# Load .env into the process environment without echoing values.
-Get-Content ".env" | ForEach-Object {
-    $line = $_.Trim()
-    if ($line -and -not $line.StartsWith("#") -and $line.Contains("=")) {
-        $i = $line.IndexOf("=")
-        $k = $line.Substring(0, $i).Trim()
-        $v = $line.Substring($i + 1).Trim()
-        [Environment]::SetEnvironmentVariable($k, $v, "Process")
-    }
-}
+. (Join-Path $PSScriptRoot 'env-loader.ps1')
+Import-PaydayEnv (Join-Path $root '.env')
 
 $destRpc = if ($env:DEST_RPC_URL) { $env:DEST_RPC_URL } else { $env:SEPOLIA_RPC_URL }
 if (-not $destRpc) { throw "Set DEST_RPC_URL (or SEPOLIA_RPC_URL) in .env" }

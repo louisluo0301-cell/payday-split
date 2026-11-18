@@ -48,9 +48,9 @@
 > **Why Reactive is doing real work.** The Reactive contract is not a notifier. It mirrors the full bucket list and version, maintains per-user/per-token subscriptions, adds/removes subscriptions when the rule is armed or paused, filters self-transfers and payee refunds, enforces the callback budget, and constructs the versioned authenticated payload. One callback executes the whole waterfall, so users pay one callback overhead instead of one per destination.
 >
 > **Features.**
-> - Fixed + percentage buckets, priority order, up to 8 destinations.
-> - Cumulative bucket targets, preserved paid progress, explicit new cycles; no automatic calendar reset yet.
-> - Current-state execution preview and validated JSON plan backups (draft only).
+> - Waterfall fixed + gross-income percentage, or pro-rata shares of a capped budget; up to 8 destinations.
+> - Stable bucket identities, cumulative targets and automatic fixed-duration UTC payday cycles (not calendar months).
+> - Current-state execution preview, budget templates and validated v2 JSON plan backups (draft only).
 > - Wallet reserve, per-run/daily limits, expiry, pause and bounded approvals.
 > - Gross-income percentages; fixed bills first by preset; remainder retained.
 > - 100% total percentage cap; every payout capped by the paycheck.
@@ -64,9 +64,9 @@
 >
 > **Tech stack.** Solidity 0.8.29, Foundry, `reactive-lib-omni v0.1.0`, OpenZeppelin 5.1, Vite + ethers v6.
 >
-> **Built during the buildathon.** Contracts, 72 tests, deployment/verification scripts, UI, local Anvil harness, and docs were written for this event. The public Reactive starter/library is used as a dependency.
+> **Built during the buildathon.** Contracts, 87 tests, deployment/verification scripts, UI, local Anvil harness, and docs were written for this event. The public Reactive starter/library is used as a dependency.
 >
-> **Evidence.** 72/72 Foundry and 13/13 frontend tests; local Anvil full-loop demo; one-command testnet deploy + `verify.ps1`. Repo: `https://github.com/louisluo0301-cell/payday-split`.
+> **Evidence.** 87/87 Foundry and 17/18 frontend tests; local Anvil full-loop demo; one-command testnet deploy + `verify.ps1`. Repo: `https://github.com/louisluo0301-cell/payday-split`.
 
 **GitHub / GitLab / Bitbucket**
 
@@ -110,7 +110,7 @@
 
 ## Judge quick path
 
-1. `forge test` → 72/72.
+1. `forge test` → 87/87.
 2. Open the three transactions above.
 3. Lasna: `getRule(user, token)` → 3 payees, version, `subscribed=true`.
 4. Destination: `bucketCount(user, token)` → 3; `ruleVersion` → 1; `getBuckets` → rent/tax/savings.

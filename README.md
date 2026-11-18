@@ -10,7 +10,8 @@
 
 - **Omni 实现**：使用 `reactive-lib-omni`、`onlySystem` 和 `SYSTEM.requestCallbackV_1_0`；回调首参数保留 `address(0)`，由网络注入 Reactive 合约地址。
 - **费用机制实测**：[Lasna 三参数查询与三问回答](docs/LASNA-FEES-NOTE.md)，附 [cast 原始输出](deployments/lasna-fees.json)。
-- **项目实践**：[v6 功能与验收记录](docs/UPGRADE-v6.md)、[测试复现方法](docs/TESTING.md)、[本地完整流程证据](deployments/31337.evidence.json)。
+- **项目实践**：[v7 功能与验收记录](docs/UPGRADE-v7.md)、[测试复现方法](docs/TESTING.md)、[本地完整流程证据](deployments/31337.evidence.json)。
+- **相似项目研究与勘误**：[GitHub 参考项目](docs/REFERENCE-RESEARCH-v7.md)、[整体代码复核记录](docs/CODE-REVIEW-v7.md)。
 - **当前进度**：本地验证已完成；真实测试网部署与外部审计待完成。
 
 ![PaydaySplit demo](docs/demo-preview.gif)
@@ -21,13 +22,13 @@
 
 ![Payday receipt](docs/receipt-example.png)
 
-> **v6 update (2026-11-18):** cumulative bucket goals with explicit new cycles, current-state execution previews, and validated plan backups. **72 contract + 13 frontend tests** pass. See [v6 behavior and evidence](docs/UPGRADE-v6.md) and the [六维度完整后续优化方案](docs/OPTIMIZATION-PLAN.md). Automatic payday reset, native ETH, bridges and yield remain planned. Existing screenshots/video show the earlier UI.
+> **v7 update (2026-11-18):** waterfall/pro-rata modes, stable bucket identities, automatic fixed-length payday cycles, budget templates and plan backup v2. See [behavior and migration](docs/UPGRADE-v7.md), [GitHub research](docs/REFERENCE-RESEARCH-v7.md), [code review](docs/CODE-REVIEW-v7.md) and the [六维度完整后续优化方案](docs/OPTIMIZATION-PLAN.md). Native ETH routing, bridges, yield and failed-bucket retries remain planned. Existing screenshots/video show the earlier UI.
 
 ## English quick read
 
 **PaydaySplit is a non-custodial income waterfall.** Every payment in a configured ERC-20 is routed by priority in one Reactive callback: the default preset puts fixed bills first (rent, salaries), then percentage buckets (tax, savings, bonus), and the remainder stays in the wallet. Up to 8 buckets, versioned rules, per-bucket failure isolation, and a manual recovery path.
 
-- **72 Foundry tests**, including fuzz preview-vs-execution, malicious/non-standard ERC-20s, replay, version monotonicity, and per-user callback budgets.
+- **87 Foundry tests**, including fuzz preview-vs-execution, malicious/non-standard ERC-20s, replay, version monotonicity, and per-user callback budgets.
 - **Local Anvil full loop is verified** — see `deployments/31337.evidence.json`; **testnet is not deployed yet** (requires your wallet/funds).
 - **No-wallet demo:** `cd web && npm install && npm run dev`, then open `/?demo=1`.
 - **Local full loop:** `pwsh ./script/local-demo.ps1`; with MetaMask, also run `cd web && npm run local:watch`.
@@ -36,14 +37,14 @@
 
 | Evidence | Status |
 |---|---|
-| Contracts + 72 tests | ✅ local; CI workflow included |
+| Contracts + 87 tests | ✅ local; CI workflow included |
 | Local Anvil end-to-end (Transfer → react → callback → Split/Retained) | ✅ verified |
 | Demo mode / judge quick path | ✅ `?demo=1` |
 | Sepolia + Lasna deployment | ⏳ needs funded test wallet (see `docs/REMAINING_TASKS.md`) |
 | Public GitHub | ✅ https://github.com/louisluo0301-cell/payday-split |
 | DoraHacks submission | ⏳ pending |
 
-> Fixed amounts and percentages are **additive per bucket**; array order is the priority. The UI ships a fixed-first Freelancer preset.
+> Waterfall adds fixed amounts to gross-income percentages and follows array priority. Pro-rata uses one capped available budget and requires zero active fixed amounts. Goals retain progress across sorting; fixed-length cycles reset it automatically.
 
 ---
 
@@ -52,7 +53,7 @@ PaydaySplit 不再只是「工资自动存钱」，而是一个**收入分账引
 - 合约：Solidity `0.8.29`，Foundry，`reactive-lib-omni v0.1.0`
 - 规则：固定金额 + 百分比 + 优先级 + 版本号；最多 8 个去向
 - 前端：Vite + ethers v6，可视化 waterfall 编辑器
-- 测试：**72 个 Foundry 测试全部通过**（含 fuzz）
+- 测试：**87 个 Foundry 测试全部通过**（含 fuzz）
 - 本地全链路：Anvil + MockSystem + MockProxy 实测通过
 
 ---
@@ -168,7 +169,7 @@ payday-split/
 │   ├── PaydaySplitReactive.sol    # Lasna：镜像、动态订阅、回调
 │   └── DemoUSDC.sol               # 6 位小数演示稳定币
 ├── test/
-│   └── PaydaySplit.t.sol          # 72 tests + MockSystem / MockProxy
+│   └── PaydaySplit.t.sol          # 87 tests + MockSystem / MockProxy
 ├── script/
 │   ├── Deploy.s.sol               # 4 步部署 + 默认 Freelancer waterfall
 │   ├── deploy.ps1 / deploy.sh     # 一键部署
@@ -241,12 +242,14 @@ pwsh ./script/local-demo.ps1
 
 | 环节 | 交易 |
 |---|---|
-| 收入 `Transfer` | `0xaed7e751172d6ec123fa40ed5c2ac4c0c075dcbc419ccafaf9eeaf5694568503` |
-| local `react()` (MockSystem) | `0xa1cdef5cb90f3c241b52d068afd592bf13abd03d220a969855b450f7a04ff456` |
-| 回调 / `Split` + `Retained` | `0xbcda72fcdd1679d2929f137649ceabbec16d58cf37a5eb92786dc8e05af574dc` |
+| 收入 `Transfer` | `0xf4f8dcb0b1919b9fe6aaef1f544669f2eb46b57db2ef11bec0aa9d72260da6b6` |
+| local `react()` (MockSystem) | `0x738a5887000fc7b746182ff7f55cc550d09f3aff4f6c8573791516daad30b81e` |
+| 回调 / `Split` + `Retained` | `0xe76b9f3f78d540e40c98d73181de748525c9244f83b3a6aa295233465f5f8e9b` |
 | 结果 | 房租 300 / 税 250 / 储蓄 150 / 留存 300 |
 
 > 这些是本地 Anvil 交易，不是测试网交易，不能当作 Sepolia 证据提交。
+
+在默认本地部署后运行 `cd web`、`npm run local:budget`：比例 50/30/20、每次预算 600、首桶目标 350，四次实付首桶 **300 → 50 → 0 → 跨 7 天后 300**。预演、实际增量及重复回调检查见 [机器证据](deployments/31337.budget-v7.evidence.json)。`local:goals` 和 `local:budget` 各自需要刚重置的默认部署。
 
 ---
 
@@ -319,17 +322,19 @@ pwsh ./script/verify.ps1
 
 | 评审维度 | PaydaySplit |
 |---|---|
-| **Execution** | 72/72 Foundry；本地 Anvil 全链路；测试网部署脚本已就绪但**未执行** |
+| **Execution** | 87/87 Foundry；本地 Anvil 全链路；测试网部署脚本已就绪但**未执行** |
 | **Integration** | Reactive 镜像 bucket 列表和版本、动态订阅、一次回调执行 8 个去向 |
 | **Usefulness** | 自由职业者/创作者/小团队的「收入分账 + 税预留 + 房租优先」 |
-| **Craft** | 两个合约、72 个测试、可视化编辑器、部署/验证/本地演示、架构/安全/演示文档 |
+| **Craft** | 两个合约、87 个测试、可视化编辑器、部署/验证/本地演示、架构/安全/演示文档 |
 
 ---
 
 ## 10. 文档
 
 - [六维度完整后续优化方案（含里程碑与验收）](docs/OPTIMIZATION-PLAN.md)
-- [v6 新功能、证据与迁移限制](docs/UPGRADE-v6.md)
+- [v7 新功能、证据与迁移限制](docs/UPGRADE-v7.md)
+- [GitHub 相似项目研究与采用依据](docs/REFERENCE-RESEARCH-v7.md)
+- [代码勘误与依赖安全公告](docs/CODE-REVIEW-v7.md)
 - [架构与 waterfall 算法](docs/ARCHITECTURE.md)
 - [安全模型与已知限制](docs/SECURITY.md)
 - [2:57 演示视频（本地 Anvil）](docs/payday-split-demo.mp4)
@@ -340,7 +345,7 @@ pwsh ./script/verify.ps1
 - [Reactive 四问四答图（PNG）](docs/paydaysplit-four-questions.png)
 - [一页项目简介（judge quick read）](docs/ONE_PAGER.md)
 - [路线图：从 hackathon 到生产](docs/ROADMAP.md)
-- [测试与覆盖：72 tests / local evidence](docs/TESTING.md)
+- [测试与覆盖：87 tests / local evidence](docs/TESTING.md)
 - [后续待办：测试网/视频/发布/提交](docs/REMAINING_TASKS.md)
 
 ---
@@ -352,7 +357,7 @@ pwsh ./script/verify.ps1
 - Fixed + percentage buckets, priority order, 100% cap.
 - Versioned rules; stale callbacks cannot apply a new rule.
 - Per-bucket failure isolation; `Retained` event for spending money.
-- 72/72 Foundry tests; local Anvil full-loop demo; testnet deploy scripts ready (not executed).
+- 87/87 Foundry tests; local Anvil full-loop demo; testnet deploy scripts ready (not executed).
 - Stack: Solidity 0.8.29, Foundry, reactive-lib-omni v0.1.0, Vite + ethers v6.
 
 ---

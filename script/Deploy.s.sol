@@ -3,6 +3,7 @@ pragma solidity ^0.8.29;
 
 import { Script, console } from "forge-std/Script.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import { IPayable } from "@reactive/src/interfaces/IPayable.sol";
 import { PaydaySplit } from "../src/PaydaySplit.sol";
 import { PaydaySplitReactive } from "../src/PaydaySplitReactive.sol";
@@ -55,6 +56,8 @@ contract DeployReactive is Script {
 /// @notice Step 3 (destination chain): bind Reactive, create a demo waterfall, approve, and fund callbacks.
 /// forge script script/Deploy.s.sol:Configure --rpc-url $SEPOLIA_RPC_URL --broadcast --non-interactive
 contract Configure is Script {
+    using SafeERC20 for IERC20;
+
     function run() external {
         uint256 pk = vm.envUint("PRIVATE_KEY");
         address deployer = vm.addr(pk);
@@ -67,9 +70,17 @@ contract Configure is Script {
         if (savingsPayee == address(0)) {
             savingsPayee = vm.envOr("SAVINGS_ADDR", address(0x000000000000000000000000000000000000cafE));
         }
-        uint96 rentFixed = uint96(vm.envOr("RENT_FIXED", uint256(300e6)));
-        uint16 taxBps = uint16(vm.envOr("TAX_BPS", uint256(2_500)));
-        uint16 savingsBps = uint16(vm.envOr("SAVINGS_BPS", uint256(1_500)));
+        uint256 rentRaw = vm.envOr("RENT_FIXED", uint256(300e6));
+        uint256 taxRaw = vm.envOr("TAX_BPS", uint256(2_500));
+        uint256 savingsRaw = vm.envOr("SAVINGS_BPS", uint256(1_500));
+        require(
+            rentRaw <= type(uint96).max && taxRaw <= 10_000 && savingsRaw <= 10_000 && taxRaw + savingsRaw <= 10_000,
+            "invalid demo allocation"
+        );
+        uint96 rentFixed = uint96(rentRaw);
+        uint16 taxBps = uint16(taxRaw);
+        uint16 savingsBps = uint16(savingsRaw);
+        uint256 approvalAmount = vm.envOr("APPROVAL_AMOUNT", uint256(1_000e6));
         uint256 callbackFund = vm.envOr("CALLBACK_FUND_WEI", uint256(0.02 ether));
 
         require(rentPayee != deployer && taxPayee != deployer && savingsPayee != deployer, "payee is deployer");
@@ -85,7 +96,7 @@ contract Configure is Script {
         vm.startBroadcast(pk);
         split.setReactive(reactive);
         split.setBuckets(token, buckets);
-        IERC20(token).approve(splitAddr, type(uint256).max);
+        IERC20(token).forceApprove(splitAddr, approvalAmount);
         if (callbackFund > 0) {
             (bool ok,) = splitAddr.call{ value: callbackFund }("");
             require(ok, "callback funding failed");

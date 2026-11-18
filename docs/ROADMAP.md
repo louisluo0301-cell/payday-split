@@ -1,14 +1,14 @@
 # Roadmap — PaydaySplit
 
-Current release: **v6, 2026-11-18**. Full six-dimension design, tradeoffs and acceptance criteria: [OPTIMIZATION-PLAN.md](OPTIMIZATION-PLAN.md).
+Current release: **v7, 2026-11-18**. Full design: [OPTIMIZATION-PLAN.md](OPTIMIZATION-PLAN.md). Current semantics: [UPGRADE-v7.md](UPGRADE-v7.md).
 
 | Stage | Scope | Acceptance |
 |---|---|---|
-| Shipped v6 | Versioned non-custodial ERC20 waterfall, spending controls, cumulative goals/manual cycles, execution preview, plan backup, receipts/CSV, local harness | 72 Foundry + 13 frontend tests; local callback evidence |
-| M1 Hackathon | Explicit waterfall/pro-rata modes, stable bucket IDs, lazy payday-cycle accounting, bounded recovery, templates | Real testnet demo; no duplicate payment through failures/cycle changes |
-| M2 Pilot | Native ETH receiver, opt-in notifications, multi-source local routing, accounting exports | Independent user exit, exception recovery, reviewed permissions |
-| M3 Optional modules | One bridge, one streaming-pay adapter, one ERC-4626 strategy, cooldown account | Separate risk review/audit; core routing works without modules |
+| Shipped v7 | ERC20 waterfall/pro-rata, stable bucket IDs, fixed-length payday cycles, goals, controls, preview, templates, backup v2, receipts/CSV | 87 Foundry + 18 frontend tests, local four-loop cycle evidence |
+| M1 remaining | Bounded per-bucket retry/cancellation, exception status, real testnet deployment | No duplicate successful payments; failures/reordering/cycle changes tested |
+| M2 pilot | Native ETH receiver, opt-in notifications, multi-source routing, accounting exports | Independent exit, reviewed permissions and complete exception lifecycle |
+| M3 optional modules | One bridge, one streaming-pay adapter, one ERC-4626 strategy, cooldown account | Separate risk review/audit; routing works without modules |
 
-Public GitHub is published. Real Sepolia/Lasna deployment, current video, external review and buildathon submission remain outstanding. v6 is not proxy-upgradeable: migrate to a fresh deployment and revoke old permissions. No current claim of automatic monthly reset, native ETH routing, bridge settlement or yield generation.
+Public GitHub is published. Real Sepolia/Lasna deployment, updated video, external review and buildathon submission remain outstanding. v7 uses a new immutable deployment; revoke old permissions during migration. Automatic cycles are fixed-duration periods, not calendar months. Native ETH routing, bridges, streaming-pay and yield integration are not implemented.
 
-Default product direction: one-time configuration, bounded automation, actionable exceptions, and a user-controlled exit.
+Research: [REFERENCE-RESEARCH-v7.md](REFERENCE-RESEARCH-v7.md). Known issues: [CODE-REVIEW-v7.md](CODE-REVIEW-v7.md).

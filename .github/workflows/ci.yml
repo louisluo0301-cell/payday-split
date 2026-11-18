@@ -35,3 +35,6 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
+      - name: Deployment environment parser
+        shell: pwsh
+        run: ../script/test-env.ps1

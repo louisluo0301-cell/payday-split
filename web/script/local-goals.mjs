@@ -1,4 +1,4 @@
-// v6 integration check. Requires a fresh script/local-demo.ps1 run; local Anvil only.
+// Current release integration check. Requires a fresh local-demo run; local Anvil only.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {Contract, JsonRpcProvider} from 'ethers';
@@ -23,6 +23,12 @@ const split = new Contract(d.split, [
   'function setBucketGoal(address,uint256,uint256,uint96,bool)',
   'function bucketGoals(address,address,uint256,uint256) view returns(uint96 target,uint96 paid,uint64 cycle)',
   'function previewExecution(address,address,uint256) view returns(uint256[] amounts,uint256 retained,uint8 blocked)',
+  'function getBucketIds(address,address) view returns(uint64[])',
+  'function setBucketsWithIds(address,(address payee,uint96 fixedAmount,uint16 bps,bool active)[],uint64[])',
+  'function setAllocationMode(address,uint8)',
+  'function setCycleConfig(address,uint64,uint32)',
+  'function setPolicy(address,(uint96 reserve,uint96 maxPerRun,uint96 dailyLimit,uint96 minIncome,uint64 validUntil,bool paused))',
+  'event BucketsSet(address indexed user,address indexed token,uint256 indexed version,address[] payees,uint96[] fixedAmounts,uint16[] bps,bool[] active)',
 ], user);
 const reactive = new Contract(d.reactive, [
   'function react((uint256 chainId,address contractAddress,uint256 topic0,uint256 topic1,uint256 topic2,uint256 topic3,bytes data,uint256 blockNumber,uint256 opCode,uint256 blockHash,uint256 txHash,uint256 logIndex))',
@@ -32,13 +38,35 @@ const system = new Contract(SYSTEM, [
 ], provider);
 const proxy = new Contract(d.proxy, ['function deliver(address,address,bytes) returns(bool,bytes)'], user);
 const U = 1_000000n;
-const version = await split.ruleVersion(d.deployer, d.token);
-const buckets = await split.getBuckets(d.deployer, d.token);
+const budgetMode=process.argv.includes('--budget');
+let buckets = await split.getBuckets(d.deployer, d.token);
 assert.equal(buckets.length, 3, 'Use the default fresh demo rule');
-const goalTx = await split.setBucketGoal(d.token, 0, version, 350n * U, true);
+let anchor=0n;
+if(budgetMode) {
+  const ids=await split.getBucketIds(d.deployer,d.token);
+  const ratio=buckets.map((b,i)=>({payee:b.payee,fixedAmount:0n,bps:[5000,3000,2000][i],active:true}));
+  await (await split.setBucketsWithIds(d.token,ratio,[...ids])).wait();
+  await (await split.setAllocationMode(d.token,1)).wait();
+  anchor=BigInt((await provider.send('eth_getBlockByNumber',['latest',false])).timestamp);
+  await (await split.setCycleConfig(d.token,anchor,604800)).wait();
+  await (await split.setPolicy(d.token,{reserve:0,maxPerRun:600n*U,dailyLimit:0,minIncome:0,validUntil:0,paused:false})).wait();
+  // Mirror every version through the same authenticated Reactive entry point.
+  const rules=await split.queryFilter(split.filters.BucketsSet(d.deployer,d.token),0,'latest');
+  for(const event of rules) {
+    await (await reactive.react({chainId:31337,contractAddress:event.address,topic0:BigInt(event.topics[0]),topic1:BigInt(event.topics[1]),topic2:BigInt(event.topics[2]),topic3:BigInt(event.topics[3]),data:event.data,blockNumber:event.blockNumber,opCode:4,blockHash:BigInt(event.blockHash),txHash:BigInt(event.transactionHash),logIndex:event.index})).wait();
+  }
+  buckets=await split.getBuckets(d.deployer,d.token);
+}
+const version = await split.ruleVersion(d.deployer, d.token);
+const goalTx = await split.setBucketGoal(d.token, 0, version, 350n * U, !budgetMode);
 await goalTx.wait();
 const runs = [];
-for (const expected of [[300n,250n,150n], [50n,250n,150n], [0n,250n,150n]]) {
+const expectations=budgetMode ? [[300n,180n,120n],[50n,180n,120n],[0n,180n,120n],[300n,180n,120n]] : [[300n,250n,150n],[50n,250n,150n],[0n,250n,150n]];
+for (const [index,expected] of expectations.entries()) {
+  if(budgetMode && index===3) {
+    await provider.send('evm_setNextBlockTimestamp',[Number(anchor+604800n)]);
+    await provider.send('evm_mine',[]);
+  }
   const before = await Promise.all(buckets.map(b => token.balanceOf(b.payee)));
   const mint = await token.mint(d.deployer, 1000n * U);
   const receipt = await mint.wait();
@@ -52,22 +80,24 @@ for (const expected of [[300n,250n,150n], [50n,250n,150n], [0n,250n,150n]]) {
     txHash:BigInt(event.transactionHash), logIndex:event.index};
   const reactTx = await reactive.react(record); await reactTx.wait();
   const request = await system.lastRequest();
-  const callback = await proxy.deliver(d.split, d.reactive, request.payload, {gasLimit:900000});
+  const callback = await proxy.deliver(d.split, d.reactive, request.payload, {gasLimit:1500000});
   await callback.wait();
   const after = await Promise.all(buckets.map(b => token.balanceOf(b.payee)));
   const amounts = after.map((x,i) => x - before[i]);
   assert.deepEqual(amounts, [...preview.amounts], 'Preview must match actual beneficiary balances');
-  const replay = await proxy.deliver(d.split, d.reactive, request.payload, {gasLimit:900000});
+  const replay = await proxy.deliver(d.split, d.reactive, request.payload, {gasLimit:1500000});
   await replay.wait();
   assert.deepEqual(await Promise.all(buckets.map(b => token.balanceOf(b.payee))), after);
   runs.push({incomeTx:mint.hash, reactTx:reactTx.hash, callbackTx:callback.hash, replayTx:replay.hash,
     amounts:amounts.map(String), retained:String(preview.retained)});
 }
 const goal = await split.bucketGoals(d.deployer, d.token, version, 0);
-assert.equal(goal.paid, 350n * U);
+assert.equal(goal.paid, (budgetMode?300n:350n) * U);
+if(budgetMode) assert.equal(goal.cycle,2n);
 const evidence = {note:'Disposable local Anvil + MockSystem/MockProxy only. Not public testnet delivery.',
   chainId:31337, token:d.token, split:d.split, ruleVersion:String(version), goalTx:goalTx.hash,
-  target:String(goal.target), paid:String(goal.paid), runs, recordedAt:new Date().toISOString()};
-fs.writeFileSync(new URL('../../deployments/31337.goals-v6.evidence.json', import.meta.url), JSON.stringify(evidence,null,2));
-console.log('PASS: three full callback loops pay rent 300, 50, 0; goal=350; previews match; replays pay nothing.');
+  target:String(goal.target), paid:String(goal.paid), cycle:String(goal.cycle),budgetMode,runs, recordedAt:new Date().toISOString()};
+const output=budgetMode?'../../deployments/31337.budget-v7.evidence.json':'../../deployments/31337.goals-v7.evidence.json';
+fs.writeFileSync(new URL(output, import.meta.url), JSON.stringify(evidence,null,2));
+console.log(budgetMode?'PASS: pro-rata callbacks pay 300/50/0, next-week cycle pays 300 again; preview matches; replays pay nothing.':'PASS: waterfall callbacks pay 300/50/0; preview matches; replays pay nothing.');
 provider.destroy();

@@ -63,6 +63,31 @@ test('demo dashboard boots, saves controls, respects pause and manages allowance
     $('#save-policy').click(); $('[data-save-goal="0"]').click();
     await Promise.resolve(); $('#faucet-btn').click();
     assert.match($('.activity-group').textContent,/\+75\.00/);
+    // New templates, pro-rata budgets, stable UI identities and automatic weekly rollover.
+    $('[data-preset="balanced"]').click();
+    $('#policy-maxPerRun').value='600'; $('#save-policy').click();
+    $('#save-allocation').click(); await Promise.resolve();
+    $('#faucet-btn').click();
+    assert.match($('.activity-group').textContent,/\+300\.00/);
+    assert.match($('.activity-group').textContent,/\+180\.00/);
+    assert.match($('.activity-group').textContent,/\+120\.00/);
+    const realNow=Date.now;
+    const anchor=Math.floor(realNow()/60000)*60000;
+    try {
+      Date.now=()=>anchor;
+      $('#cycle-duration').value='604800';
+      $('#cycle-anchor').value=new Date(anchor).toISOString().slice(0,16);
+      $('#save-cycle').click(); await Promise.resolve();
+      $('[data-goal="0"]').value='350'; $('[data-save-goal="0"]').click(); await Promise.resolve();
+      $('#faucet-btn').click(); $('#faucet-btn').click(); $('#faucet-btn').click();
+      assert.match($('.goal-progress').textContent,/350\.0 \/ 350\.0/);
+      assert.equal($('[data-cycle="0"]').disabled,true);
+      Date.now=()=>anchor+604800000;
+      $('#faucet-btn').click();
+      assert.match($('.goal-progress').textContent,/300\.0 \/ 350\.0.*cycle 2/);
+      $('[data-down="0"]').click();
+      assert.match(window.document.querySelectorAll('.goal-progress')[1].textContent,/300\.0 \/ 350\.0/);
+    } finally {Date.now=realNow;}
   } finally {
     intervals.forEach(clearInterval);
     globalThis.setInterval = originalInterval;

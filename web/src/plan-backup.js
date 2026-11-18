@@ -9,7 +9,7 @@ function amount(value, decimals) {
 export function parsePlan(text, context) {
   if (text.length > 50000) throw new Error('Backup is too large (maximum 50 KB).');
   const data = JSON.parse(text);
-  if (data?.schema !== 'paydaysplit.plan' || data.version !== 1) throw new Error('Unsupported backup format.');
+  if (data?.schema !== 'paydaysplit.plan' || ![1,2].includes(data.version)) throw new Error('Unsupported backup format.');
   if (data.chainId !== context.chainId || data.decimals !== context.decimals || getAddress(data.token) !== getAddress(context.token)) {
     throw new Error('Backup network, token or decimals do not match this dashboard.');
   }
@@ -34,5 +34,9 @@ export function parsePlan(text, context) {
   if (!Array.isArray(data.goalTargets) || data.goalTargets.length !== buckets.length) throw new Error('Goal targets must match destinations.');
   const goalTargets = data.goalTargets.map(value => amount(value, context.decimals));
   // Copy only recognized fields. Never restore paid progress, approval, credentials or deployment addresses.
-  return {buckets, policy, goalTargets};
+  const allocationMode=data.version===1 ? 0 : data.allocationMode;
+  if(![0,1].includes(allocationMode) || (allocationMode===1 && buckets.some(b=>b.active && parseUnits(b.fixed,context.decimals)>0n))) throw new Error('Invalid allocation mode or fixed amount in pro-rata plan.');
+  const cycle=data.version===1 ? {anchor:'0',duration:0} : data.cycle;
+  if(!cycle || typeof cycle.anchor!=='string' || !/^\d+$/.test(cycle.anchor) || BigInt(cycle.anchor)>253402300799n || !Number.isInteger(cycle.duration) || (cycle.duration!==0 && (cycle.duration<86400 || cycle.duration>31536000)) || (cycle.duration===0 && cycle.anchor!=='0')) throw new Error('Invalid cycle configuration.');
+  return {buckets, policy, goalTargets, allocationMode, cycle:{anchor:cycle.anchor,duration:cycle.duration}};
 }

@@ -9,6 +9,7 @@ import {
 } from "ethers";
 import { calculateRun } from "./waterfall.js";
 import { createPlanning } from "./planning.js";
+import { createBudgetControls } from "./budget-controls.js";
 
 let demoPolicy = {};
 let demoSpent = 0n;
@@ -44,15 +45,19 @@ async function savePolicy() {
     await tx.wait();
     policyDirty = false;
     await loadPolicy();
+    await planner.preview();
     toast("Spending controls confirmed onchain.", false, tx.hash);
   } catch (err) { toast(humanError(err), true); }
   finally { state.busy = false; }
 }
 
 async function loadPolicy() {
+  const account=state.account;
   try {
-    const policy = await state.split.policies(state.account, deployment.token);
-    const [day, amount] = await state.split.dailySpend(state.account, deployment.token);
+    const [policy, [day, amount]] = await Promise.all([
+      state.split.policies(account, deployment.token), state.split.dailySpend(account, deployment.token)
+    ]);
+    if(account!==state.account) return;
     // Avoid overwriting fields while the user is editing.
     if (!policyDirty && !document.activeElement?.id?.startsWith("policy-")) {
       for (const key of ["reserve", "maxPerRun", "dailyLimit", "minIncome"]) {
@@ -65,7 +70,7 @@ async function loadPolicy() {
     const spent = Number(day) === Math.floor(Date.now() / 86400000) ? amount : 0n;
     document.querySelector("#policy-status").textContent = `Onchain controls loaded · spent today: ${formatUnits(spent, state.decimals)} ${state.symbol}${policy.paused ? " · PAUSED" : ""}`;
   } catch {
-    document.querySelector("#policy-status").textContent = "Controls could not be read. Check the RPC connection and that the deployed contract supports v5.";
+    if(account===state.account) document.querySelector("#policy-status").textContent = "Controls could not be read. Check the RPC connection and that the deployed contract supports v7.";
   }
 }
 
@@ -91,6 +96,12 @@ const SPLIT_ABI = [
   "function policies(address user,address token) view returns (uint96 reserve,uint96 maxPerRun,uint96 dailyLimit,uint96 minIncome,uint64 validUntil,bool paused)",
   "function dailySpend(address user,address token) view returns (uint256 day,uint256 amount)",
   "function setBucketGoal(address token,uint256 index,uint256 expectedVersion,uint96 target,bool newCycle)",
+  "function getBucketIds(address user,address token) view returns (uint64[])",
+  "function setBucketsWithIds(address token,tuple(address payee,uint96 fixedAmount,uint16 bps,bool active)[] buckets,uint64[] ids)",
+  "function allocationModes(address user,address token) view returns(uint8)",
+  "function setAllocationMode(address token,uint8 mode)",
+  "function cycleConfigs(address user,address token) view returns(uint64 anchor,uint32 duration,uint32 revision)",
+  "function setCycleConfig(address token,uint64 anchor,uint32 duration)",
   "function bucketGoals(address user,address token,uint256 version,uint256 index) view returns (uint96 target,uint96 paid,uint64 cycle)",
   "function previewExecution(address user,address token,uint256 paycheck) view returns (uint256[] amounts,uint256 retained,uint8 blocked)",
   "event BucketsSet(address indexed user, address indexed token, uint256 indexed version, address[] payees, uint96[] fixedAmounts, uint16[] bps, bool[] active)",
@@ -163,6 +174,15 @@ const PRESETS = {
   ],
 };
 
+PRESETS.balanced = [
+  {label:'Essentials',payee:'0x000000000000000000000000000000000000dEaD',fixed:'0',bps:'50',active:true},
+  {label:'Flexible budget',payee:'0x000000000000000000000000000000000000bEEF',fixed:'0',bps:'30',active:true},
+  {label:'Savings',payee:'0x000000000000000000000000000000000000cafE',fixed:'0',bps:'20',active:true},
+];
+PRESETS.emergency = [
+  {label:'Emergency reserve',payee:'0x000000000000000000000000000000000000dEaD',fixed:'0',bps:'80',active:true},
+  {label:'Savings',payee:'0x000000000000000000000000000000000000cafE',fixed:'0',bps:'20',active:true},
+];
 const LABELS = {
   "0x000000000000000000000000000000000000dead": "Rent vault",
   "0x000000000000000000000000000000000000beef": "Tax reserve",
@@ -202,6 +222,10 @@ const state = {
   dirty: false,
   pollingSplit: false,
   samplePaycheck: 1000,
+  allocationMode: 0,
+  draftAllocationMode: 0,
+  cycleConfig: {anchor:0,duration:0,revision:0},
+  demoNonce: 0,
   labels: storedLabels,
   mode: "personal",
   demoMode,
@@ -212,6 +236,9 @@ const planner = createPlanning({
   readPolicy: readPolicyEditor,
   getPolicy: () => demoPolicy,
   getSpent: () => Math.floor(Date.now() / 86400000) === demoDay ? demoSpent : 0n,
+  writeBudget: (plan) => {
+    budgetControls.stage(plan);
+  },
   writePolicy: (policy) => {
     for (const key of ["reserve","maxPerRun","dailyLimit","minIncome"]) $(`#policy-${key}`).value = policy[key];
     $("#policy-paused").checked = policy.paused;
@@ -220,6 +247,7 @@ const planner = createPlanning({
     policyDirty = true;
   },
 });
+const budgetControls = createBudgetControls({state,deployment,$,toast,planner,refresh:refreshAll,update:updateSummary});
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                             */
@@ -498,6 +526,10 @@ function disconnect() {
   state.allowance = 0n;
   state.buckets = clonePreset("freelancer");
   state.ruleVersion = 0;
+  state.allocationMode = 0;
+  state.draftAllocationMode = 0;
+  state.cycleConfig = {anchor:0,duration:0,revision:0};
+  budgetControls.show();
   state.onchainBucketCount = 0;
   state.groups = [];
   state.dirty = false;
@@ -517,15 +549,24 @@ async function loadRule() {
   if (!state.split || !state.account) return;
 
   try {
-    const [raw, version] = await Promise.all([
+    const account = state.account;
+    const [raw, version, ids, mode, cycle] = await Promise.all([
       state.split.getBuckets(state.account, deployment.token),
       state.split.ruleVersion(state.account, deployment.token),
+      state.split.getBucketIds(state.account, deployment.token),
+      state.split.allocationModes(state.account, deployment.token),
+      state.split.cycleConfigs(state.account, deployment.token),
     ]);
+    if(account !== state.account) return;
     state.ruleVersion = Number(version);
+    state.allocationMode = Number(mode);
+    state.cycleConfig = {anchor:Number(cycle.anchor),duration:Number(cycle.duration),revision:Number(cycle.revision)};
+    budgetControls.show();
     state.onchainBucketCount = raw.length;
 
     if (raw.length > 0) {
-      state.buckets = raw.map((bucket) => ({
+      state.buckets = raw.map((bucket, i) => ({
+        id: String(ids[i]), identityPayee: bucket.payee.toLowerCase(),
         label: state.labels[bucket.payee.toLowerCase()] || LABELS[bucket.payee.toLowerCase()] || "",
         payee: bucket.payee,
         fixed: formatUnits(bucket.fixedAmount, state.decimals),
@@ -550,11 +591,13 @@ async function refreshAll() {
     return;
   }
 
+  const account = state.account;
   try {
     const [balance, allowance] = await Promise.all([
       state.token.balanceOf(state.account),
       state.token.allowance(state.account, deployment.split),
     ]);
+    if(account !== state.account) return;
     state.balance = balance;
     state.allowance = allowance;
     state.demoToken = state.symbol === "dUSDC";
@@ -782,7 +825,7 @@ function updateSummary() {
   const rows = [];
   active.forEach((bucket, index) => {
     const requested =
-      (Number(bucket.fixed) || 0) + (sample * (Number(bucket.bps) || 0)) / 100;
+      (state.draftAllocationMode===1 ? 0 : (Number(bucket.fixed) || 0)) + (sample * (Number(bucket.bps) || 0)) / 100;
     const paid = Math.min(requested, remaining);
     remaining -= paid;
     rows.push({
@@ -1351,7 +1394,8 @@ async function saveRule(event) {
   state.busy = true;
   setBusy(button, "Saving…", true);
   try {
-    const tx = await state.split.connect(state.signer).setBuckets(deployment.token, buckets);
+    const ids = state.buckets.map(b=>/^\d+$/.test(b.id||'') ? BigInt(b.id) : 0n);
+    const tx = await state.split.connect(state.signer).setBucketsWithIds(deployment.token, buckets, ids);
     clearRuleError();
     toast("Waterfall saved. Reactive is mirroring it on Lasna.", false, tx.hash);
     await tx.wait();
@@ -1371,7 +1415,7 @@ async function saveRule(event) {
 async function pollReactiveRule() {
   if (!deployment.reactive) return;
   try {
-    const provider = new JsonRpcProvider(deployment.lasnaRpc || "https://lasna-rpc.rnk.dev/", 5318007, {
+    const provider = new JsonRpcProvider(deployment.lasnaRpc || "https://lasna-rpc.rnk.dev/", useLocal ? 31337 : 5318007, {
       staticNetwork: true,
     });
     const reactive = new Contract(deployment.reactive, REACTIVE_ABI, provider);
@@ -1419,17 +1463,22 @@ async function approve() {
 
 function runDemoIncome(silent = false) {
   const sample = Math.max(1, Number(state.samplePaycheck) || 1000);
-  const paycheck = parseUnits(String(sample), state.decimals);
+  const paycheck = parseUnits(String(state.samplePaycheck), state.decimals);
   const day = Math.floor(Date.now() / 86400000);
   if (day !== demoDay) { demoSpent = 0n; demoDay = day; }
-  const result = calculateRun(state.buckets.map(bucketFromEditor), paycheck,
-    state.balance + paycheck, state.allowance, demoPolicy, demoSpent, undefined, planner.getGoals());
+  let result;
+  try {
+    const buckets=state.buckets.map(bucketFromEditor);
+    if(buckets.reduce((sum,b)=>sum+(b.active?b.bps:0),0)>10000) throw new Error('Active percentages cannot exceed 100%.');
+    result = calculateRun(buckets, paycheck,
+      state.balance + paycheck, state.allowance, demoPolicy, demoSpent, undefined, planner.getGoals(), state.allocationMode, state.cycleConfig);
+  } catch(err) {toast(err.message,true);return;}
   const { splits } = result;
   const remaining = Number(formatUnits(result.retained, state.decimals));
   demoSpent += result.paid;
   if (state.allowance !== MaxUint256) state.allowance -= result.paid;
 
-  const nonce = state.groups.length + 1;
+  const nonce = ++state.demoNonce;
   const txHash = `0x${"0".repeat(56)}${nonce.toString(16).padStart(8, "0")}`;
   const group = {
     txHash,
@@ -1703,6 +1752,7 @@ function applyImport() {
 
 function wire() {
   planner.wire();
+  budgetControls.wire();
   $("#recover-income").addEventListener("click", async () => {
     if (state.demoMode) { toast("Recovery needs an onchain Transfer event. Sample runs are simulated."); return; }
     if (!state.signer || state.busy) return;
@@ -1740,8 +1790,14 @@ function wire() {
   $("#import-apply").addEventListener("click", applyImport);
 
   $("#sample-input").addEventListener("input", (event) => {
-    state.samplePaycheck = Math.max(1, Number(event.target.value) || 1);
+    const value = event.target.value;
+    try {
+      const units = parseUnits(value, state.decimals);
+      if(units<=0n || units>=2n**96n) throw new Error();
+      state.samplePaycheck = value;
+    } catch { return; }
     updateSummary();
+    planner.preview();
   });
 
   document.querySelectorAll("[data-mode]").forEach((button) => {
@@ -1775,10 +1831,13 @@ function wire() {
   document.querySelectorAll("[data-preset]").forEach((button) => {
     button.addEventListener("click", () => {
       state.buckets = clonePreset(button.dataset.preset);
+      state.draftAllocationMode=['balanced','emergency'].includes(button.dataset.preset) ? 1 : 0;
+      $("#allocation-mode").value=String(state.draftAllocationMode);
       rememberLabels();
       state.dirty = true;
       renderBuckets();
       updateSummary();
+      toast('Template staged. Example payees must be reviewed. Save destinations and mode separately.');
     });
   });
 

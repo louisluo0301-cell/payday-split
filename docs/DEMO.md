@@ -1,3 +1,5 @@
+> Historical video script (earlier UI, 62-test milestone). Current v7 behavior and validation are in UPGRADE-v7.md and TESTING.md; re-record before presenting new features.
+
 # 3-minute demo video script — Reactive Income Waterfall
 
 **Target length:** 2:50–3:00. **Format:** 1920×1080, 30 fps. **Language:** Chinese narration + English subtitles.

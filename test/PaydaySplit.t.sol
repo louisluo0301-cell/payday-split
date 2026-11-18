@@ -251,6 +251,28 @@ contract MovesThenFailsToken {
     }
 }
 
+contract GasGriefToken {
+    mapping(address => uint256) public balanceOf;
+    mapping(address => mapping(address => uint256)) public allowance;
+    address public blocked;
+
+    function setup(address user, address spender, address blocked_) external {
+        balanceOf[user] = 1000e6;
+        allowance[user][spender] = 1000e6;
+        blocked = blocked_;
+    }
+
+    function transferFrom(address from, address to, uint256 amount) external returns (bool) {
+        if (to == blocked) {
+            assembly { for { } 1 { } { } }
+        }
+        balanceOf[from] -= amount;
+        allowance[from][msg.sender] -= amount;
+        balanceOf[to] += amount;
+        return true;
+    }
+}
+
 contract PaydaySplitTest is Test {
     uint256 constant CHAIN = 11155111;
     uint256 constant PAYCHECK = 1_000e6;
@@ -322,7 +344,13 @@ contract PaydaySplitTest is Test {
         vm.prank(user);
         split.setBuckets(address(token), buckets);
         Vm.Log[] memory logs = vm.getRecordedLogs();
+        for (uint256 i; i < logs.length; ++i) {
+            if (uint256(logs[i].topics[0]) == reactive.BUCKETS_SET_TOPIC_0()) {
+                return _toRecord(logs[i], address(split), txHash, i);
+            }
+        }
         assertEq(logs.length, 1);
+        assertEq(logs[0].topics[0], keccak256("RuleUnchanged(address,address,uint256)"));
         return _toRecord(logs[0], address(split), txHash, 0);
     }
 
@@ -1120,15 +1148,15 @@ contract PaydaySplitTest is Test {
         assertEq(bad.balanceOf(aliceSavings), 0);
     }
 
-    function test_revertingBalanceReadStillPays() public {
+    function test_revertingBalanceReadFailsClosedWithoutRevertingCallback() public {
         RevertingBalanceToken tokenWithBadView = new RevertingBalanceToken();
         tokenWithBadView.setBalance(alice, PAYCHECK);
         tokenWithBadView.setAllowance(alice, address(split), PAYCHECK);
         _setSingleBucketFor(address(tokenWithBadView), aliceSavings, 100e6);
 
         assertTrue(_deliverFor(address(tokenWithBadView), 6));
-        assertEq(tokenWithBadView.actualBalance(alice), PAYCHECK - 100e6);
-        assertEq(tokenWithBadView.actualBalance(aliceSavings), 100e6);
+        assertEq(tokenWithBadView.actualBalance(alice), PAYCHECK);
+        assertEq(tokenWithBadView.actualBalance(aliceSavings), 0);
     }
 
     function _goal(uint256 index, uint96 target, bool reset) internal {
@@ -1200,8 +1228,8 @@ contract PaydaySplitTest is Test {
         vm.prank(alice);
         vm.expectRevert(PaydaySplit.GoalVersionMismatch.selector);
         split.setBucketGoal(address(token), 0, 1, 100e6, false);
-        _manual(); // changed rules have new goal namespace
-        assertEq(token.balanceOf(aliceRent), 601e6);
+        _manual(); // stable identity keeps the existing goal even when its amount changes
+        assertEq(token.balanceOf(aliceRent), 300e6);
     }
 
     function test_goalIsUserScopedAndRejectsMissingBucket() public {
@@ -1469,6 +1497,244 @@ contract PaydaySplitTest is Test {
         uint256 paid = 10_000e6 - token.balanceOf(alice);
         assertLe(paid, runCap);
         assertLe(paid, dailyCap);
+    }
+
+    function _ratioRule() internal {
+        PaydaySplit.Bucket[] memory list = new PaydaySplit.Bucket[](3);
+        list[0] = bucket(aliceRent, 0, 5000, true);
+        list[1] = bucket(aliceTax, 0, 3000, true);
+        list[2] = bucket(aliceSavings, 0, 2000, true);
+        _react(_setBuckets(alice, list, 10001));
+        vm.prank(alice);
+        split.setAllocationMode(address(token), PaydaySplit.AllocationMode.ProRata);
+    }
+
+    function test_proRataUsesFixedBudgetForAllRecipients() public {
+        _ratioRule();
+        _policy(0, 600e6, 0, 0, 0, false);
+        (uint256[] memory amounts, uint256 retained,) = split.previewExecution(alice, address(token), PAYCHECK);
+        assertEq(amounts[0], 300e6);
+        assertEq(amounts[1], 180e6);
+        assertEq(amounts[2], 120e6);
+        assertEq(retained, 400e6);
+        _manual();
+        assertEq(token.balanceOf(aliceRent), amounts[0]);
+        assertEq(token.balanceOf(aliceTax), amounts[1]);
+        assertEq(token.balanceOf(aliceSavings), amounts[2]);
+    }
+
+    function test_proRataAllowanceLimitsBaseRatherThanSkippingLargerShares() public {
+        _ratioRule();
+        vm.prank(alice);
+        token.approve(address(split), 100e6);
+        _manual();
+        assertEq(token.balanceOf(aliceRent), 50e6);
+        assertEq(token.balanceOf(aliceTax), 30e6);
+        assertEq(token.balanceOf(aliceSavings), 20e6);
+    }
+
+    function test_proRataGoalDoesNotRedistributeUnusedShare() public {
+        _ratioRule();
+        _goal(0, 100e6, false);
+        _manual();
+        assertEq(token.balanceOf(aliceRent), 100e6);
+        assertEq(token.balanceOf(aliceTax), 300e6);
+        assertEq(token.balanceOf(aliceSavings), 200e6);
+        assertEq(token.balanceOf(alice), 9_400e6);
+    }
+
+    function test_modeRejectsFixedAmountsAtomically() public {
+        _armAlice();
+        vm.prank(alice);
+        vm.expectRevert(PaydaySplit.FixedAmountInProRata.selector);
+        split.setAllocationMode(address(token), PaydaySplit.AllocationMode.ProRata);
+        assertEq(uint256(split.allocationModes(alice, address(token))), 0);
+        assertEq(split.ruleVersion(alice, address(token)), 1);
+    }
+
+    function test_modeSaveIsNoOpAndSwitchInvalidatesOldCallback() public {
+        _ratioRule();
+        uint256 version = split.ruleVersion(alice, address(token));
+        vm.prank(alice);
+        split.setAllocationMode(address(token), PaydaySplit.AllocationMode.ProRata);
+        assertEq(split.ruleVersion(alice, address(token)), version);
+        bytes memory payload = abi.encodeWithSelector(
+            split.executeSplit.selector, address(0), alice, address(token), PAYCHECK, version - 1, 20001, 0
+        );
+        (bool ok,) = proxy.deliver(address(split), address(reactive), payload);
+        assertTrue(ok);
+        assertEq(token.balanceOf(aliceRent), 0);
+    }
+
+    function test_bucketIdentitySurvivesReorderAndRetainsGoal() public {
+        _armAlice();
+        _goal(0, 300e6, false);
+        _manual();
+        uint64[] memory ids = split.getBucketIds(alice, address(token));
+        PaydaySplit.Bucket[] memory list = aliceBuckets();
+        (list[0], list[2]) = (list[2], list[0]);
+        (ids[0], ids[2]) = (ids[2], ids[0]);
+        vm.prank(alice);
+        split.setBucketsWithIds(address(token), list, ids);
+        (uint96 target, uint96 paid,) = split.bucketGoals(alice, address(token), 2, 2);
+        assertEq(target, 300e6);
+        assertEq(paid, 300e6);
+        _manual();
+        assertEq(token.balanceOf(aliceRent), 300e6);
+    }
+
+    function test_bucketIdentityRejectsDuplicatesUnknownAndPayeeReplacement() public {
+        _armAlice();
+        uint64[] memory ids = split.getBucketIds(alice, address(token));
+        PaydaySplit.Bucket[] memory list = aliceBuckets();
+        ids[1] = ids[0];
+        vm.prank(alice);
+        vm.expectRevert(PaydaySplit.InvalidBucketIdentity.selector);
+        split.setBucketsWithIds(address(token), list, ids);
+        ids[1] = 99;
+        vm.prank(alice);
+        vm.expectRevert(PaydaySplit.InvalidBucketIdentity.selector);
+        split.setBucketsWithIds(address(token), list, ids);
+        ids[1] = 2;
+        list[0].payee = bob;
+        vm.prank(alice);
+        vm.expectRevert(PaydaySplit.InvalidBucketIdentity.selector);
+        split.setBucketsWithIds(address(token), list, ids);
+    }
+
+    function test_newIdentityDoesNotInheritPreviousPayeeGoal() public {
+        _armAlice();
+        _goal(0, 300e6, false);
+        _manual();
+        uint64[] memory ids = split.getBucketIds(alice, address(token));
+        PaydaySplit.Bucket[] memory list = aliceBuckets();
+        list[0].payee = bob;
+        ids[0] = 0;
+        vm.prank(alice);
+        split.setBucketsWithIds(address(token), list, ids);
+        (uint96 target,,) = split.bucketGoals(alice, address(token), 2, 0);
+        assertEq(target, 0);
+        uint256 before = token.balanceOf(bob);
+        _manual();
+        assertEq(token.balanceOf(bob) - before, 300e6);
+    }
+
+    function test_automaticWeeklyGoalResetsAtExactBoundaryWithoutResettingDailyPolicy() public {
+        _armAlice();
+        uint64 anchor = uint64(block.timestamp);
+        vm.prank(alice);
+        split.setCycleConfig(address(token), anchor, 7 days);
+        _goal(0, 350e6, false);
+        _manual();
+        _manual();
+        _manual();
+        assertEq(token.balanceOf(aliceRent), 350e6);
+        vm.warp(uint256(anchor) + 7 days - 1);
+        _manual();
+        assertEq(token.balanceOf(aliceRent), 350e6);
+        vm.warp(uint256(anchor) + 7 days);
+        (, uint96 paid, uint64 cycle) = split.bucketGoals(alice, address(token), 1, 0);
+        assertEq(paid, 0);
+        assertEq(cycle, 2);
+        _policy(0, 0, 200e6, 0, 0, false);
+        _manual();
+        _manual();
+        assertEq(token.balanceOf(aliceRent), 350e6); // earlier execution on this UTC day already spent 400
+        vm.warp((block.timestamp / 1 days + 1) * 1 days);
+        _manual();
+        assertEq(token.balanceOf(aliceRent), 550e6);
+    }
+
+    function test_cycleFutureAnchorBlocksAndInvalidConfigCannotReset() public {
+        _armAlice();
+        vm.prank(alice);
+        vm.expectRevert(PaydaySplit.InvalidCycle.selector);
+        split.setCycleConfig(address(token), 1, 60);
+        vm.prank(alice);
+        split.setCycleConfig(address(token), uint64(block.timestamp + 1 days), 7 days);
+        (,, uint8 blocked) = split.previewExecution(alice, address(token), PAYCHECK);
+        assertEq(blocked, 5);
+        _manual();
+        assertEq(token.balanceOf(aliceRent), 0);
+        _goal(0, 350e6, false);
+        vm.prank(alice);
+        vm.expectRevert(PaydaySplit.AutomaticCycleActive.selector);
+        split.setBucketGoal(address(token), 0, 1, 350e6, true);
+    }
+
+    function test_cycleIdenticalSavePreservesProgressAndScheduleEditStartsGeneration() public {
+        _armAlice();
+        uint64 anchor = uint64(block.timestamp);
+        vm.prank(alice);
+        split.setCycleConfig(address(token), anchor, 7 days);
+        _goal(0, 350e6, false);
+        _manual();
+        vm.prank(alice);
+        split.setCycleConfig(address(token), anchor, 7 days);
+        (, uint96 paid,) = split.bucketGoals(alice, address(token), 1, 0);
+        assertEq(paid, 300e6);
+        vm.prank(alice);
+        split.setCycleConfig(address(token), anchor, 14 days);
+        (, paid,) = split.bucketGoals(alice, address(token), 1, 0);
+        assertEq(paid, 0);
+    }
+
+    function testFuzz_proRataPreviewMatchesAndNeverOverdraws(uint96 cap, uint96 target) public {
+        _ratioRule();
+        cap = uint96(bound(cap, 1, PAYCHECK));
+        target = uint96(bound(target, 1, PAYCHECK));
+        _policy(0, cap, 0, 0, 0, false);
+        _goal(0, target, false);
+        (uint256[] memory amounts,,) = split.previewExecution(alice, address(token), PAYCHECK);
+        _manual();
+        assertEq(token.balanceOf(aliceRent), amounts[0]);
+        assertEq(token.balanceOf(aliceTax), amounts[1]);
+        assertEq(token.balanceOf(aliceSavings), amounts[2]);
+        assertLe(amounts[0] + amounts[1] + amounts[2], cap);
+        assertLe(amounts[0], target);
+    }
+
+    function test_previewMaxUintDoesNotOverflow() public {
+        _armAlice();
+        (,, uint256 retained) = split.previewWaterfall(alice, address(token), type(uint256).max);
+        assertLe(retained, type(uint256).max);
+    }
+
+    function test_gasGriefingRecipientCannotStarveLaterBucket() public {
+        GasGriefToken grief = new GasGriefToken();
+        grief.setup(alice, address(split), aliceRent);
+        PaydaySplit.Bucket[] memory list = new PaydaySplit.Bucket[](2);
+        list[0] = bucket(aliceRent, 100e6, 0, true);
+        list[1] = bucket(aliceSavings, 100e6, 0, true);
+        vm.prank(alice);
+        split.setBuckets(address(grief), list);
+        vm.prank(alice);
+        split.runSplit(address(grief), PAYCHECK);
+        assertEq(grief.balanceOf(aliceRent), 0);
+        assertEq(grief.balanceOf(aliceSavings), 100e6);
+    }
+
+    function test_sevenGasBurningBucketsFitRequestedCallbackGasAndLastBucketPays() public {
+        GasGriefToken grief = new GasGriefToken();
+        grief.setup(alice, address(split), aliceRent);
+        PaydaySplit.Bucket[] memory list = new PaydaySplit.Bucket[](8);
+        for (uint256 i; i < 8; ++i) {
+            list[i] = bucket(i == 7 ? aliceSavings : aliceRent, 100e6, 0, true);
+        }
+        vm.prank(alice);
+        split.setBuckets(address(grief), list);
+        bytes memory payload = abi.encodeCall(
+            split.executeSplit,
+            (address(0), alice, address(grief), PAYCHECK, split.ruleVersion(alice, address(grief)), 123456, 0)
+        );
+        (bool ok,) = proxy.deliver{ gas: reactive.CALLBACK_GAS_LIMIT() }(address(split), address(reactive), payload);
+        assertTrue(ok);
+        assertEq(grief.balanceOf(aliceRent), 0);
+        assertEq(grief.balanceOf(aliceSavings), 100e6);
+        assertEq(grief.balanceOf(alice), 900e6);
+        (bool replayOK,) = proxy.deliver(address(split), address(reactive), payload);
+        assertTrue(replayOK);
+        assertEq(grief.balanceOf(aliceSavings), 100e6);
     }
 
     function test_reentrantTokenCannotDoubleSplit() public {
