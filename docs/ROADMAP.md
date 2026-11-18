@@ -5,6 +5,7 @@ Current release: **v8, 2026-11-18**. Full design: [OPTIMIZATION-PLAN.md](OPTIMIZ
 | Stage | Scope | Acceptance |
 |---|---|---|
 | Shipped v8 | v7 allocation/cycles plus shared CLI/dashboard health checks, fee credit/debt, exceptions, status history and verified independent observer | 98 Foundry + 33 frontend tests, local core flow and real observer evidence |
+| Current main | [Income trace and recovery](income-trace/README.md) links each incoming transfer to the request and payout | 36 frontend tests, local browser payout and late callback replay verified |
 | M1 remaining | Bounded per-bucket retry/cancellation, actual PaydaySplit testnet callback/payout | No duplicate successful payments; failures/reordering/cycle changes tested |
 | M2 pilot | Native ETH receiver, opt-in notifications, multi-source routing, accounting exports | Independent exit, reviewed permissions and complete exception lifecycle |
 | M3 optional modules | One bridge, one streaming-pay adapter, one ERC-4626 strategy, cooldown account | Separate risk review/audit; routing works without modules |

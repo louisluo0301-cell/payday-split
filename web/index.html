@@ -264,15 +264,7 @@
               <label class="policy-pause"><input id="policy-paused" type="checkbox"> Pause execution immediately</label>
               <button class="btn btn-small btn-outline" id="save-policy" type="button">Save spending controls</button>
               <p id="policy-status" class="fineprint" role="status">Connect to read onchain controls. Preview above shows destination math before spending controls.</p>
-              <details>
-                <summary>Recover a missed income</summary>
-                <p class="fineprint">Enter the source Transfer transaction hash and log index. Uses the sample income amount above and consumes that event so a delayed callback cannot pay it twice. A new manual payment is a separate payment.</p>
-                <div class="policy-grid">
-                  <label>Origin transaction hash<input id="recover-hash" type="text" placeholder="0x…"></label>
-                  <label>Transfer log index<input id="recover-index" type="number" min="0" step="1" value="0"></label>
-                </div>
-                <button id="recover-income" class="btn btn-small btn-outline" type="button">Recover this income once</button>
-              </details>
+              <a class="health-jump" href="#income-trace">Trace or recover an income</a>
             </div>
 
             <div class="contract-links">
@@ -325,6 +317,29 @@
             <div class="health-footer">
               <time id="health-checked" hidden></time>
               <button class="btn btn-small btn-ghost" id="health-export" type="button" disabled>Download JSON report</button>
+            </div>
+          </article>
+
+          <article id="income-trace" class="card card-trace" aria-labelledby="trace-title">
+            <div class="card-head">
+              <h3 id="trace-title">Income trace</h3>
+              <button id="trace-sample" class="btn btn-small btn-ghost" type="button" hidden>Load sample trace</button>
+            </div>
+            <form id="trace-form" class="trace-form">
+              <label>Source transaction hash
+                <input id="trace-hash" type="text" spellcheck="false" autocomplete="off" placeholder="0x…" maxlength="66" required>
+              </label>
+              <button id="trace-inspect" class="btn btn-small btn-primary" type="submit">Inspect transfer</button>
+            </form>
+            <label id="trace-transfer-row" class="trace-choice" hidden>Incoming transfer
+              <select id="trace-transfer"></select>
+            </label>
+            <p id="trace-status" class="fineprint" role="status"></p>
+            <ol id="trace-steps" class="trace-steps" hidden></ol>
+            <div id="trace-preview" class="trace-preview" hidden></div>
+            <div class="trace-actions">
+              <button id="trace-recover" class="btn btn-small btn-primary" type="button" hidden>Recover this income once</button>
+              <button id="trace-export" class="btn btn-small btn-outline" type="button" hidden>Download trace JSON</button>
             </div>
           </article>
 

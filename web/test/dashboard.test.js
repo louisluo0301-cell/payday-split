@@ -20,6 +20,10 @@ test('demo dashboard boots, saves controls, respects pause and manages allowance
     assert.equal($('#buckets-list').children.length,3);
     assert.ok($('.activity-group'), 'initial sample run renders');
     assert.match($('#health-summary').textContent,/Demo checks/);
+    $('#trace-sample').click();
+    assert.match($('#trace-status').textContent, /simulated/);
+    assert.match($('#trace-preview').textContent, /700\.0 dUSDC routed/);
+    assert.equal($('#trace-recover').hidden, true);
     $('#policy-paused').checked = true;
     $('#save-policy').click();
     assert.match($('#policy-status').textContent,/Demo controls saved/);

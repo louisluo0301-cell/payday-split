@@ -1,6 +1,7 @@
 import {
   BrowserProvider,
   Contract,
+  FetchRequest,
   JsonRpcProvider,
   MaxUint256,
   formatUnits,
@@ -12,6 +13,8 @@ import { createPlanning } from "./planning.js";
 import { createBudgetControls } from "./budget-controls.js";
 import { collectAutomationHealth, demoHealthReport } from "./automation-health.js";
 import { createHealthPanel } from "./health-panel.js";
+import { createIncomeTrace } from "./income-trace.js";
+import { groupWaterfallEvents, incomeTransfers, matchedPayout } from "./income-evidence.js";
 
 let demoPolicy = {};
 let demoSpent = 0n;
@@ -92,6 +95,7 @@ const SPLIT_ABI = [
   "function disableAll(address token)",
   "function runSplit(address token, uint256 paycheck)",
   "function recoverSplit(address token,uint256 paycheck,uint256 originTxHash,uint256 logIndex)",
+  "function processed(bytes32 key) view returns (bool)",
   "function previewWaterfall(address user, address token, uint256 paycheck) view returns (address[] payees, uint256[] amounts, uint256 retained)",
   "function bucketCount(address user, address token) view returns (uint256)",
   "function ruleVersion(address user, address token) view returns (uint256)",
@@ -130,6 +134,8 @@ const REACTIVE_ABI = [
   "function paused() view returns (bool)",
   "function getRule(address user, address token) view returns (address[] payees, uint96[] fixedAmounts, uint16[] bps, bool[] active, uint256 version, bool subscribed)",
   "function userRemaining(address user, address token) view returns (uint256)",
+  "function seen(bytes32 key) view returns (bool)",
+  "event Seen(address indexed user,address indexed token,uint256 amount,uint256 originTxHash,uint256 logIndex)",
 ];
 
 let deployment = {
@@ -253,7 +259,11 @@ const planner = createPlanning({
 });
 const budgetControls = createBudgetControls({state,deployment,$,toast,planner,refresh:refreshAll,update:updateSummary});
 const healthPanel = createHealthPanel({$,toast,refresh:loadReactiveStatus});
+const incomeTrace = createIncomeTrace({
+  $, toast, context: incomeTraceContext, readReactive: readIncomeReaction, readActivity: loadActivity, recover: recoverIncome,
+});
 let healthReadId = 0;
+let activityReadId = 0;
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                             */
@@ -522,7 +532,9 @@ async function connect() {
 
 function disconnect() {
   ++healthReadId;
+  ++activityReadId;
   healthPanel.reset();
+  incomeTrace.reset();
   planner.clear();
   policyDirty = false;
   state.provider = null;
@@ -540,6 +552,8 @@ function disconnect() {
   budgetControls.show();
   state.onchainBucketCount = 0;
   state.groups = [];
+  state.skips = [];
+  state.activityError = false;
   state.dirty = false;
 
   $("#wallet-chip").classList.remove("connected");
@@ -637,51 +651,22 @@ async function refreshAll() {
 }
 
 async function loadActivity() {
-  if (!state.split || !state.account) return;
+  const { split, account, provider } = state;
+  if (!split || !account) return [];
+  const request = ++activityReadId;
+  const isCurrent = () => request === activityReadId && account === state.account && provider === state.provider;
 
   try {
-    const head = await state.provider.getBlockNumber();
+    const head = Number(await provider.send("eth_blockNumber", []));
     const fromBlock = Math.max(0, head - 5000);
+    const token = deployment.token;
     const [splits, retained, skipped] = await Promise.all([
-      state.split.queryFilter(state.split.filters.Split(state.account), fromBlock, "latest"),
-      state.split.queryFilter(state.split.filters.Retained(state.account), fromBlock, "latest"),
-      state.split.queryFilter(state.split.filters.BucketSkipped(state.account), fromBlock, "latest"),
+      split.queryFilter(split.filters.Split(account, token), fromBlock, head),
+      split.queryFilter(split.filters.Retained(account, token), fromBlock, head),
+      split.queryFilter(split.filters.BucketSkipped(account, token), fromBlock, head),
     ]);
-
-    const groups = new Map();
-    const ensureGroup = (txHash, blockNumber) => {
-      if (!groups.has(txHash)) {
-        groups.set(txHash, {
-          txHash,
-          blockNumber,
-          splits: [],
-          retained: 0n,
-          paycheck: 0n,
-          version: 0,
-        });
-      }
-      return groups.get(txHash);
-    };
-
-    for (const event of splits) {
-      const group = ensureGroup(event.transactionHash, event.blockNumber);
-      group.splits.push({
-        payee: event.args.payee,
-        amount: event.args.amount,
-        bucketIndex: Number(event.args.bucketIndex),
-        paycheck: event.args.paycheck,
-      });
-      group.paycheck = event.args.paycheck;
-      group.version = Number(event.args.version);
-    }
-
-    for (const event of retained) {
-      const group = ensureGroup(event.transactionHash, event.blockNumber);
-      group.retained += event.args.amount;
-    }
-
-    state.groups = [...groups.values()].sort((a, b) => b.blockNumber - a.blockNumber);
-    state.skips = skipped.map((event) => ({
+    const groups = groupWaterfallEvents({ splits, retained, skipped });
+    const skips = skipped.map((event) => ({
       txHash: event.transactionHash,
       blockNumber: event.blockNumber,
       bucketIndex: Number(event.args.bucketIndex),
@@ -691,25 +676,90 @@ async function loadActivity() {
       originTxHash: event.args.originTxHash,
       logIndex: event.args.logIndex,
     }));
-    state.activityError = false;
-
     // Relative time is much more useful than "block 723".
-    const blockNumbers = [...new Set(state.groups.slice(0, 10).map((group) => group.blockNumber))];
+    const blockNumbers = [...new Set(groups.slice(0, 10).map((group) => group.blockNumber))];
     const blocks = await Promise.all(
-      blockNumbers.map((number) => state.provider.getBlock(number).catch(() => null)),
+      blockNumbers.map((number) => provider.getBlock(number).catch(() => null)),
     );
     const times = new Map(blocks.filter(Boolean).map((block) => [block.number, block.timestamp]));
-    for (const group of state.groups) {
+    for (const group of groups) {
       group.timestamp = times.get(group.blockNumber) || 0;
       group.relative = group.timestamp ? timeAgo(group.timestamp) : `block ${group.blockNumber}`;
     }
 
-    renderActivity();
+    if (isCurrent()) {
+      state.groups = groups;
+      state.skips = skips;
+      state.activityError = false;
+      renderActivity();
+    }
+    return groups;
   } catch {
-    state.groups = [];
-    state.skips = [];
-    state.activityError = true;
-    renderActivity();
+    if (isCurrent()) {
+      state.groups = [];
+      state.skips = [];
+      state.activityError = true;
+      renderActivity();
+    }
+    return [];
+  }
+}
+
+function incomeTraceContext() {
+  return {
+    account: state.account, provider: state.provider, split: state.split, signer: state.signer,
+    symbol: state.symbol, decimals: state.decimals, demoMode: state.demoMode,
+    token: deployment.token, splitAddress: deployment.split, chainId, txLink: txUrl,
+    reactiveTxLink: hash => useLocal ? "" : `${lasnaExplorer}/tx/${hash}`,
+  };
+}
+
+async function readIncomeReaction(ctx, income, key) {
+  if (!deployment.reactive || !deployment.lasnaRpc) return { requested: null };
+  const reactiveChainId = useLocal ? 31337 : 5318007;
+  const request = new FetchRequest(deployment.lasnaRpc);
+  request.timeout = 7000;
+  const provider = new JsonRpcProvider(request, reactiveChainId, { staticNetwork: true, batchMaxCount: 1 });
+  try {
+    if (BigInt(await provider.send("eth_chainId", [])) !== BigInt(reactiveChainId)) return { requested: null };
+    const contract = new Contract(deployment.reactive, REACTIVE_ABI, provider);
+    const requested = await contract.seen(key);
+    const evidence = { chainId: reactiveChainId, contract: deployment.reactive, requested, txHash: null };
+    if (!requested) return evidence;
+    try {
+      const head = await provider.getBlockNumber();
+      const events = await contract.queryFilter(contract.filters.Seen(ctx.account, ctx.token), Math.max(0, head - 1000), head);
+      const match = events.find(event => event.args.originTxHash === BigInt(income.hash)
+        && event.args.logIndex === BigInt(income.logIndex) && event.args.amount === income.amount);
+      if (match) evidence.txHash = match.transactionHash;
+    } catch {
+      // The exact-key state check still works when recent event indexing is unavailable.
+    }
+    return evidence;
+  } finally {
+    provider.destroy();
+  }
+}
+
+async function recoverIncome(ctx, income) {
+  if (!ctx.signer || state.busy) throw new Error("Finish the current wallet action before recovering income.");
+  if (ctx.account !== state.account || ctx.signer !== state.signer) throw new Error("The connected wallet changed. Inspect the income again.");
+  state.busy = true;
+  try {
+    const [network, accounts] = await Promise.all([
+      ctx.provider.send("eth_chainId", []),
+      ctx.provider.send("eth_accounts", []),
+    ]);
+    if (BigInt(network) !== BigInt(ctx.chainId) || accounts[0]?.toLowerCase() !== ctx.account.toLowerCase()
+      || ctx.signer !== state.signer) throw new Error("The wallet or network changed. Inspect the income again.");
+    const tx = await ctx.split.connect(ctx.signer).recoverSplit(ctx.token, income.amount, BigInt(income.hash), income.logIndex);
+    await tx.wait();
+    if (ctx.account === state.account && ctx.signer === state.signer) {
+      toast("Recovery transaction confirmed. Check the destination result for the payout.", false, tx.hash);
+      await refreshAll();
+    }
+  } finally {
+    state.busy = false;
   }
 }
 
@@ -1053,6 +1103,14 @@ function renderActivity() {
     receipt.textContent = "Receipt";
     receipt.addEventListener("click", () => downloadReceipt(group));
     actions.append(receipt);
+    if (group.originHash) {
+      const trace = document.createElement("button");
+      trace.type = "button";
+      trace.className = "link-btn";
+      trace.textContent = "Trace income";
+      trace.addEventListener("click", () => incomeTrace.open(group.originHash, group.logIndex));
+      actions.append(trace);
+    }
     head.append(left, right, actions);
 
     const body = document.createElement("div");
@@ -1572,7 +1630,7 @@ async function runNow() {
   state.busy = true;
   try {
     const tx = await state.split.connect(state.signer).runSplit(deployment.token, paycheck);
-    toast("Manual run submitted. This is a recovery path, not a callback.", false, tx.hash);
+    toast("Manual payment submitted under your saved rule.", false, tx.hash);
     await tx.wait();
     await refreshAll();
   } catch (err) {
@@ -1590,15 +1648,17 @@ async function claim() {
   if (!state.signer || state.busy || !state.demoToken) return;
   state.busy = true;
   const button = $("#faucet-btn");
-  const before = state.groups.length;
+  const account = state.account;
   setBusy(button, "Claiming…", true);
 
   try {
     const tx = await state.token.connect(state.signer).faucet();
     toast("Income claimed. Reactive is watching the Transfer event…", false, tx.hash);
-    await tx.wait();
+    const receipt = await tx.wait();
+    if (account !== state.account) return;
+    const [income] = incomeTransfers(receipt, receipt.hash.toLowerCase(), account, deployment.token);
     await sleep(4000);
-    await pollForSplit(before);
+    await pollForSplit(income, account);
   } catch (err) {
     toast(humanError(err), true);
   } finally {
@@ -1608,22 +1668,26 @@ async function claim() {
   }
 }
 
-async function pollForSplit(beforeGroups) {
+async function pollForSplit(income, account) {
   state.pollingSplit = true;
-  for (let i = 0; i < 10; i++) {
-    await loadActivity();
-    if (state.groups.length > beforeGroups) {
-      const group = state.groups[0];
-      const routed = group.splits.reduce((sum, split) => sum + split.amount, 0n);
-      toast(`Waterfall ran: ${fmt(routed)} ${state.symbol} routed, ${fmt(group.retained)} retained.`);
-      state.pollingSplit = false;
-      return;
+  try {
+    for (let i = 0; i < 10 && account === state.account; i++) {
+      const groups = await loadActivity();
+      if (account !== state.account) return;
+      const group = matchedPayout(groups, income);
+      if (group) {
+        toast(`Income recorded: ${fmt(group.totalRouted)} ${state.symbol} routed, ${fmt(group.retained)} retained.`);
+        return;
+      }
+      setText("reactive-note", `Waiting for this income's callback… (${i + 1}/10)`);
+      await sleep(3000);
     }
-    setText("reactive-note", `Waiting for the callback… (${i + 1}/10)`);
-    await sleep(3000);
+    if (account === state.account) {
+      setText("reactive-note", "No matching payout found yet. Open Income trace to check this transfer.");
+    }
+  } finally {
+    state.pollingSplit = false;
   }
-  setText("reactive-note", "No run yet. Check the mirror, allowance, and callback budget.");
-  state.pollingSplit = false;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1748,23 +1812,7 @@ function wire() {
   planner.wire();
   budgetControls.wire();
   healthPanel.wire();
-  $("#recover-income").addEventListener("click", async () => {
-    if (state.demoMode) { toast("Recovery needs an onchain Transfer event. Sample runs are simulated."); return; }
-    if (!state.signer || state.busy) return;
-    try {
-      const hash = $("#recover-hash").value.trim();
-      if (!/^0x[0-9a-fA-F]{64}$/.test(hash) || BigInt(hash) === 0n) throw new Error("Enter the 32-byte source transaction hash.");
-      const index = $("#recover-index").value;
-      if (!/^\d+$/.test(index)) throw new Error("Enter a non-negative integer log index.");
-      state.busy = true;
-      const tx = await state.split.connect(state.signer).recoverSplit(deployment.token,
-        parseUnits(String(state.samplePaycheck), state.decimals), BigInt(hash), BigInt(index));
-      await tx.wait();
-      toast("Recovery confirmed. An already consumed event makes no further payment.", false, tx.hash);
-      await refreshAll();
-    } catch (err) { toast(humanError(err), true); }
-    finally { state.busy = false; }
-  });
+  incomeTrace.wire();
   $("#save-policy").addEventListener("click", savePolicy);
   document.querySelectorAll('[id^="policy-"]').forEach(el => el.addEventListener("input", () => { policyDirty = true; }));
   $("#connect-top").addEventListener("click", connect);
