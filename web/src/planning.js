@@ -116,14 +116,16 @@ export function createPlanning(ctx) {
   }
   async function load() {
     if(!state.split || state.dirty || state.demoMode) return;
-    const account=state.account, version=state.ruleVersion;
+    const { account, signer, split, ruleVersion: version } = state;
     try {
-      const values=await Promise.all(state.buckets.map((_,i)=>state.split.bucketGoals(account,deployment.token,version,i)));
-      if(account!==state.account || version!==state.ruleVersion || state.dirty) return;
+      const values=await Promise.all(state.buckets.map((_,i)=>split.bucketGoals(account,deployment.token,version,i)));
+      if(signer!==state.signer || version!==state.ruleVersion || state.dirty) return;
       goals=values.map(g=>({target:g.target,paid:g.paid,cycle:g.cycle}));
       if(!pendingImport) targets=[];
       render();
-    } catch { $('#goals-status').textContent='Goals could not be read. Verify the connection and that your deployment supports v7.'; }
+    } catch {
+      if(signer===state.signer) $('#goals-status').textContent='Goals could not be read. Check the connection and try again.';
+    }
   }
   async function preview() {
     const request=++previewRequest;

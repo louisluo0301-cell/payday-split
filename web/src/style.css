@@ -2896,6 +2896,12 @@ input[type="range"]::-moz-range-thumb {
 .module-section summary { color: var(--green-deep); font-weight: 650; cursor: pointer; }
 .module-status, .module-help, .module-jobs { color: var(--ink-soft); font-size: 13px; overflow-wrap: anywhere; }
 .module-status:empty, .module-jobs:empty { display: none; }
+.workspace-controls { display: flex; align-items: center; flex-wrap: wrap; justify-content: space-between; gap: 10px 18px; margin: 0 0 18px; }
+.workspace-controls label { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; color: var(--ink-soft); font-size: 13px; font-weight: 650; }
+.workspace-controls select { padding: 8px 12px; min-height: 44px; max-width: 100%; border: 1px solid var(--line-strong); border-radius: 10px; color: var(--ink); background: var(--white); font: inherit; }
+.workspace-controls nav { display: flex; flex-wrap: wrap; gap: 4px 10px; }
+.workspace-controls a { display: inline-flex; align-items: center; min-height: 42px; padding: 0 7px; color: var(--green-deep); text-decoration: underline; text-underline-offset: 4px; font-size: 13px; font-weight: 600; }
+#waterfall-title, #waterfall-activity { scroll-margin-top: 105px; }
 .module-inputs { display: flex; flex-wrap: wrap; align-items: end; gap: 8px 12px; margin: 12px 0; }
 .module-inputs label { display: grid; flex: 1 1 190px; max-width: 360px; min-width: 0; gap: 5px; font-size: 13px; }
 .module-inputs input {

@@ -1,4 +1,5 @@
 import { Contract, FetchRequest, JsonRpcProvider, ZeroAddress, formatUnits, getAddress, isAddress, parseUnits } from 'ethers';
+import { RETRY_QUEUE_ABI } from './retry-evidence.js';
 
 const FACTORY = [
   'function split() view returns(address)',
@@ -6,12 +7,6 @@ const FACTORY = [
   'function createNative(address) returns(address)',
   'function createAave(address,address) returns(address)',
   'function createCooldown(address,uint256) returns(address)',
-];
-const QUEUE = [
-  'function retryPending(address,address) view returns(uint256)',
-  'function retryJob(uint256) view returns(tuple(tuple(address user,address token,uint256 version,uint256 txHash,uint256 logIndex,uint256 gross) origin,uint256 epoch,uint64 period,uint64 due,uint96 amount,uint8 bucketIndex,uint8 attempts))',
-  'event RetryQueued(address indexed user,address indexed token,uint256 indexed id,uint256 originTxHash,uint256 logIndex,uint256 bucketIndex,uint256 amount,uint256 due)',
-  'event RetryClosed(address indexed user,address indexed token,uint256 indexed id,uint8 result,uint256 amount)',
 ];
 const VAULT = [
   'function releaseAt() view returns(uint256)',
@@ -70,8 +65,8 @@ export function createIncomeModules({ $, context, stageBucket, toast, setWalletB
     const [queueAddress, optedIn, ticks] = await Promise.all([
       ctx.split.retryQueue(), ctx.split.retryEnabled(ctx.account, ctx.token), retrySchedule(ctx),
     ]);
-    const queue = new Contract(queueAddress, QUEUE, ctx.provider);
-    const pending = await queue.retryPending(ctx.account, ctx.token);
+    const queue = new Contract(queueAddress, RETRY_QUEUE_ABI, ctx.provider);
+    const [pending, occupied] = await Promise.all([queue.retryPending(ctx.account, ctx.token), queue.retryQueueLength()]);
     let jobs = [];
     let closed = [];
     let historyUnavailable = false;
@@ -87,7 +82,7 @@ export function createIncomeModules({ $, context, stageBucket, toast, setWalletB
       jobs = entries.filter(({ job }) => job.amount > 0n);
       closed = finished.slice(-5).reverse();
     } catch { historyUnavailable = true; }
-    return { queue, optedIn, ticks, pending, jobs, closed, historyUnavailable };
+    return { optedIn, ticks, pending, occupied, jobs, closed, historyUnavailable };
   }
 
   async function readBuckets(ctx) {
@@ -111,9 +106,11 @@ export function createIncomeModules({ $, context, stageBucket, toast, setWalletB
     if (available(cooldown)) {
       try {
         const vault = new Contract(cooldown, VAULT, ctx.provider);
-        const [locked, pending, releaseAt, delay, block] = await Promise.all([
-          new Contract(ctx.token, TOKEN, ctx.provider).balanceOf(cooldown), vault.pendingAmount(),
-          vault.releaseAt(), vault.delay(), ctx.provider.getBlock('latest'),
+        const block = await ctx.provider.send('eth_getBlockByNumber', ['latest', false]);
+        const at = { blockTag: block.number };
+        const [locked, pending, releaseAt, delay] = await Promise.all([
+          new Contract(ctx.token, TOKEN, ctx.provider).balanceOf(cooldown, at), vault.pendingAmount(at),
+          vault.releaseAt(at), vault.delay(at),
         ]);
         results.vault = { locked, pending, releaseAt, delay, ready: pending !== 0n && BigInt(block.timestamp) >= releaseAt };
       } catch { /* Unreadable state cannot authorize a release. */ }
@@ -130,7 +127,7 @@ export function createIncomeModules({ $, context, stageBucket, toast, setWalletB
       set('retry-status', `${retries.optedIn ? 'Enabled' : 'Disabled'} · ${retries.pending} pending · ${cron}.`);
       set('retry-toggle', retries.optedIn ? 'Disable and invalidate jobs' : 'Enable retries');
       enabled('retry-toggle', true);
-      enabled('retry-process', retries.pending > 0n);
+      enabled('retry-process', retries.occupied > 0n);
       enabled('retry-cancel', retries.pending > 0n);
       const jobs = $('#retry-jobs');
       jobs.replaceChildren();

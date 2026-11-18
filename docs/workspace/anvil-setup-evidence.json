@@ -1,0 +1,30 @@
+{
+  "note": "Local Anvil harness.",
+  "chainId": 31337,
+  "token": "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512",
+  "split": "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0",
+  "reactive": "0xDc64a140Aa3E981100a9becA4E685f962f0cF6C9",
+  "proxy": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+  "user": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+  "paycheckTx": "0xaf06caa74e6fc54258eff399c0e0bd0e479c7f86304475378492afa9e07f1c43",
+  "reactTx": [
+    "0xe1544a46e83e7fcf63c827e636baee173d50d1669486ab92d508dfa7f90771de"
+  ],
+  "deliverTx": [
+    "0xc02f33991f5999c9f57214051930bc5636c27f5af9574032586fd0ede9fab00d"
+  ],
+  "amounts": [
+    "300000000",
+    "250000000",
+    "150000000"
+  ],
+  "retained": [
+    "300000000"
+  ],
+  "splitTx": [
+    "0xc02f33991f5999c9f57214051930bc5636c27f5af9574032586fd0ede9fab00d",
+    "0xc02f33991f5999c9f57214051930bc5636c27f5af9574032586fd0ede9fab00d",
+    "0xc02f33991f5999c9f57214051930bc5636c27f5af9574032586fd0ede9fab00d"
+  ],
+  "recordedAt": "2026-11-18T14:30:15.515Z"
+}

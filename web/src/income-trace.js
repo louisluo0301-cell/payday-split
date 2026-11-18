@@ -2,7 +2,7 @@ import { formatUnits } from 'ethers';
 import { serializeHealthReport } from './automation-health.js';
 import { incomeKeys, incomeTransfers, matchedPayout, parseIncomeHash, recoveryQuote } from './income-evidence.js';
 
-export function createIncomeTrace({ $, context, readReactive, readActivity, recover, toast }) {
+export function createIncomeTrace({ $, context, readReactive, readActivity, readRetries = async () => null, recover, toast }) {
   const input = $('#trace-hash');
   const select = $('#trace-transfer');
   const summary = $('#trace-status');
@@ -49,7 +49,7 @@ export function createIncomeTrace({ $, context, readReactive, readActivity, reco
     buttons();
   }
 
-  function addStep(title, message, status, link) {
+  function addStep(title, message, status, link, links = []) {
     const li = document.createElement('li');
     li.dataset.status = status;
     const heading = document.createElement('strong');
@@ -57,11 +57,11 @@ export function createIncomeTrace({ $, context, readReactive, readActivity, reco
     const description = document.createElement('p');
     description.textContent = message;
     li.append(heading, description);
-    if (link) {
+    for (const [href, label] of link ? [[link, 'Open transaction ↗'], ...links] : links) {
       const a = document.createElement('a');
       a.className = 'trace-link';
-      a.textContent = 'Open transaction ↗';
-      a.href = link;
+      a.textContent = label;
+      a.href = href;
       a.target = '_blank';
       a.rel = 'noreferrer';
       li.append(a);
@@ -98,6 +98,20 @@ export function createIncomeTrace({ $, context, readReactive, readActivity, reco
     addStep('Destination result', destinationMessage, destination.processed === true ? 'done' : 'unknown',
       payout && !demo ? ctx.txLink(payout.txHash) : '');
 
+    const retries = destination.retries;
+    if (retries && (retries.jobs.length || retries.status !== 'checked')) {
+      const states = { queued: 'queued', paid: 'paid', invalidated: 'expired or invalidated', exhausted: 'attempts ended', cancelled: 'cancelled', unknown: 'unconfirmed' };
+      const details = retries.jobs.map(job => `Bucket ${job.bucketIndex + 1n}: ${units(job.amount)} ${states[job.result]}.`).join(' ');
+      const totals = retries.totals && retries.paid > 0n
+        ? ` Updated allocation: ${units(retries.totals.routed)} routed, ${units(retries.totals.retained)} retained.` : '';
+      const scope = retries.status === 'checked' ? '' : ' Retry history is limited or unavailable.';
+      const links = retries.jobs.flatMap(job => {
+        const href = job.resultTx && ctx.txLink(job.resultTx);
+        return href ? [[href, 'Bucket ' + (job.bucketIndex + 1n) + ' transaction ↗']] : [];
+      });
+      addStep('Failed bucket retries', (details + totals + scope).trim(),
+        retries.status === 'checked' && retries.jobs.every(job => job.result === 'paid') ? 'done' : 'unknown', '', links);
+    }
     const quote = result.preview;
     preview.hidden = !quote;
     if (quote) {
@@ -151,7 +165,9 @@ export function createIncomeTrace({ $, context, readReactive, readActivity, reco
           const processed = await ctx.split.processed(keys.destination, { blockTag: head });
           if (processed) {
             const groups = await readActivity();
-            return { processed, payout: matchedPayout(groups, income) };
+            const payout = matchedPayout(groups, income);
+            const retries = await readRetries(ctx, income, payout, head);
+            return { processed, payout, retries };
           }
           const preview = await quoteFromChain(ctx, income, head).catch(() => null);
           return { processed, preview };
@@ -163,7 +179,10 @@ export function createIncomeTrace({ $, context, readReactive, readActivity, reco
         schema: 'paydaysplit.income-trace', version: 1, mode: 'chain', checkedAt: new Date().toISOString(),
         chainId: ctx.chainId, wallet: ctx.account, token: ctx.token, source: income,
         reactive: reaction.status === 'fulfilled' ? reaction.value : { requested: null },
-        destination: { contract: ctx.splitAddress, processed: destination.processed, payout: destination.payout ?? null },
+        destination: {
+          contract: ctx.splitAddress, processed: destination.processed,
+          payout: destination.payout ?? null, retries: destination.retries ?? null,
+        },
         preview: destination.preview ?? null,
       }, ctx);
       if (destination.processed === false && !report.preview) {

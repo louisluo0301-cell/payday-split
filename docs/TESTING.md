@@ -1,19 +1,18 @@
-# Testing — PaydaySplit v8
+# Testing — PaydaySplit v9
 
-Validated 2026-11-18. Current behavior: [UPGRADE-v8.md](UPGRADE-v8.md); allocation semantics: [UPGRADE-v7.md](UPGRADE-v7.md). Review: [CODE-REVIEW-v7.md](CODE-REVIEW-v7.md).
+Validated 2026-11-18. See [income modules](income-modules/README.md), [workspace acceptance](workspace/README.md) and [allocation semantics](UPGRADE-v7.md).
 
 ## Results
 
-- Foundry: **98 passed, 0 failed** (87 core + 11 independent observer/token), including five fuzz tests at 256 runs each. Raw output: `deployments/tests-v8.json`.
-- Frontend: **33 passed, 0 failed**. Allocation, cycles/backup, health checks, wrong networks, unavailable RPC data, reserve credit, user controls, notification deduplication and recovery. Raw output: `deployments/frontend-v8.tap`.
+- Foundry: **106 passed, 0 failed**, including fuzz tests and the v9 income modules.
+- Frontend: **45 passed, 0 failed**. Added checks for per-asset deployment settings, wallet network and account, exact CSV decimals, retry receipt matching, and loopback relay validation.
 - PowerShell environment parser: 7 checks; inline comments, quotes, URL fragments, export assignments, empty values and malformed quotes. Included in CI.
 - `forge fmt --check` and `npm run build`: passed. Source syntax checks include JavaScript modules and PowerShell scripts.
 - Historical Anvil full loop: Transfer → react → MockProxy → 3 Split + Retained. Evidence: `deployments/31337.evidence.json`.
 - Four pro-rata loops: budget 600; first goal 350 pays 300 → 50 → 0 → after 7 days 300; later shares remain 180/120. Every preview matches balance changes; every duplicate delivery pays zero. Evidence: `deployments/31337.budget-v7.evidence.json`.
 - Eight standard-token buckets/goals fit the 900,000 gas historical regression. Seven gas-burning buckets followed by a valid eighth complete in the requested 1,500,000 gas MockProxy budget. Real proxy overhead is not modeled.
-- Runtime sizes: PaydaySplit 19,802 B, PaydaySplitReactive 10,602 B; both below 24,576 B (EIP-170). Reproduce with `forge build --sizes`.
-- Official npm audit: production dependencies 0 known advisories; full tree has 4 high entries from one unpatched picomatch root advisory. Details: [CODE-REVIEW-v7.md](CODE-REVIEW-v7.md).
-- Current dependency scans: `deployments/npm-audit-v8.json` and `deployments/npm-audit-production-v8.json`.
+- PaydaySplit v9 runtime: 24,454 B under the 24,576 B EIP-170 cap. Reproduce with `forge build --sizes --skip test --skip script`.
+- Historical v8 raw outputs and dependency scans are in `deployments/`: `tests-v8.json`, `frontend-v8.tap`, `npm-audit-v8.json` and `npm-audit-production-v8.json`. See the [v8 review](CODE-REVIEW-v8.md).
 - Real Sepolia → Lasna observer execution verified: source Transfer, matching observation and automatic unsubscribe, count 1, remaining 0, zero debt. `deployments/camp-transfer-monitor.json`; new shared health checker independently returns `completed` in `deployments/camp-health.json`.
 
 ## Reproduce
@@ -33,14 +32,14 @@ npm run dev
 ```
 
 ```powershell
-# Disposable local Anvil only; resets port 8545 after checking client identity:
-pwsh ./script/local-demo.ps1
+# Choose an unused local port:
+pwsh ./script/local-demo.ps1 -Port 18673
 cd web
 npm run local:budget
 npm run health -- --local
 ```
 
-`local:budget` requires a fresh default deployment and deliberately sends local transactions. For the manual-waterfall goal scenario, reset again and run `npm run local:goals` instead. The harness uses a publicly known Anvil key; never fund it on public chains.
+`local:budget` requires a fresh local demo deployment and sends local transactions. For the manual-waterfall goal scenario, start another disposable chain or pass `-Reset`, then run `npm run local:goals`. The harness uses a public Anvil test identity.
 
 ## Verification limits
 
