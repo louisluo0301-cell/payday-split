@@ -1,5 +1,7 @@
 # Architecture — Reactive Income Waterfall
 
+Current v7 mode, identity and cycle semantics: [UPGRADE-v7.md](UPGRADE-v7.md). The waterfall examples below describe the default mode; ProRata instead uses a common policy/balance/allowance-capped budget. Stable IDs live on the destination, while the Reactive mirror still receives the compatible BucketsSet arrays and version.
+
 PaydaySplit routes every incoming stablecoin payment through an ordered bucket list. Each bucket can carry a fixed amount, a percentage of gross income, or both; array order is priority, and the default presets put fixed bills first. The rule lives on the destination chain; Lasna mirrors it and asks for exactly one callback per incoming transfer.
 
 ```
@@ -47,7 +49,7 @@ struct Bucket {
 
 mapping(address => mapping(address => Bucket[])) private _buckets; // user → token → ordered list
 mapping(address => mapping(address => uint256)) public ruleVersion;
-mapping(bytes32 => bool) public processed; // keccak(originTxHash, logIndex)
+mapping(bytes32 => bool) public processed; // keccak(abi.encode(user, token, originTxHash, logIndex))
 address public reactive;
 ```
 

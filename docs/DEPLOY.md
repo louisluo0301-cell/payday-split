@@ -167,7 +167,9 @@ Each call increments `ruleVersion`; the Reactive contract mirrors the new arrays
 | Frontend "Contracts not deployed" | `web/public/deployments.json` empty | Run deploy; refresh |
 | Faucet disabled | DemoUSDC cooldown | Wait 1 hour or `mint` as owner |
 
-## 10. Cost reference
+## 10. Cost reference (historical, before v7)
+
+The estimates below are old local measurements, not current v7 quotes or real-network billing. v7 requests up to 1,500,000 callback gas and has a larger destination runtime. Measure the target network, estimate deployment gas and check current fee parameters before funding. A fixed 0.02 ETH buffer is only the demo default, not an availability guarantee. See [UPGRADE-v7.md](UPGRADE-v7.md) for new-deployment migration and finite approvals.
 
 | Action | Chain | Approx. |
 |---|---|---|

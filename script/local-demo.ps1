@@ -42,9 +42,11 @@ Start-Sleep -Milliseconds 500
 
 Write-Host "Building contracts..." -ForegroundColor Cyan
 & forge build -q *> $null
+if ($LASTEXITCODE -ne 0) { throw 'Contract build failed; refusing to deploy cached artifacts.' }
 
 $artifact = Get-Content "out/PaydaySplit.t.sol/MockSystem.json" -Raw | ConvertFrom-Json
 & cast rpc anvil_setCode 0x8888888888888888888888888888888888888888 $artifact.deployedBytecode.object --rpc-url $rpc *> $null
+if ($LASTEXITCODE -ne 0) { throw 'Unable to install local MockSystem.' }
 
 Write-Host "Deploying MockProxy..." -ForegroundColor Cyan
 $proxyOut = & forge create test/PaydaySplit.t.sol:MockProxy --rpc-url $rpc --private-key $key --broadcast --gas-price 100000000000 2>&1 | Out-String
@@ -62,6 +64,7 @@ $env:TAX_PAYEE = "0x000000000000000000000000000000000000bEEF"
 $env:SAVINGS_PAYEE = "0x000000000000000000000000000000000000cafE"
 $env:MAX_CALLBACKS = "100"
 $env:MIN_PAYCHECK = "1000000"
+$env:APPROVAL_AMOUNT = "10000000000" # finite 10,000 demo-USDC approval for this local harness
 Remove-Item Env:TOKEN_ADDR -ErrorAction SilentlyContinue
 Remove-Item Env:SPLIT_ADDR -ErrorAction SilentlyContinue
 Remove-Item Env:REACTIVE_ADDR -ErrorAction SilentlyContinue
@@ -82,6 +85,7 @@ $env:REACTIVE_ADDR = $reactive
 
 Write-Host "Binding + setting the demo rule..." -ForegroundColor Cyan
 & forge script script/Deploy.s.sol:Configure --rpc-url $rpc --broadcast --non-interactive --gas-price 100000000000 -vv *> $null
+if ($LASTEXITCODE -ne 0) { throw 'Local rule configuration failed.' }
 
 $deployer = (& cast wallet address --private-key $key).Trim()
 $deployment = [ordered]@{
@@ -108,6 +112,7 @@ Write-Host "Running one full paycheck loop..." -ForegroundColor Cyan
 Push-Location "web"
 try {
     & node script/local-watcher.mjs
+    if ($LASTEXITCODE -ne 0) { throw 'Local callback verification failed.' }
 } finally {
     Pop-Location
 }

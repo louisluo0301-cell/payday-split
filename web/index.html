@@ -177,6 +177,8 @@
               <button type="button" class="preset-btn" data-preset="freelancer">Freelancer</button>
               <button type="button" class="preset-btn" data-preset="team">Team payroll</button>
               <button type="button" class="preset-btn" data-preset="simple">Simple savings</button>
+              <button type="button" class="preset-btn" data-preset="balanced">Balanced 50/30/20</button>
+              <button type="button" class="preset-btn" data-preset="emergency">Emergency reserve</button>
             </div>
 
             <form id="rule-form" class="rule-form">
@@ -279,8 +281,16 @@
           </article>
 
           <article class="card card-planning">
-            <div class="card-head"><h3>Funding goals</h3><span class="pill pill-soft">v6</span></div>
-            <p class="fineprint">Cap each destination's cumulative payouts. Once funded, later income skips it. Zero disables the target. Start a new cycle explicitly when the next bill is due. Changing destinations creates a fresh rule version and clears its goals.</p>
+            <div class="card-head"><h3>Budget modes &amp; funding goals</h3><span class="pill pill-soft">v7</span></div>
+            <div class="budget-controls">
+              <label>Allocation mode<select id="allocation-mode"><option value="0">Waterfall · priority / gross income</option><option value="1">Pro-rata · share of available budget</option></select></label>
+              <button type="button" id="save-allocation" class="btn btn-small btn-outline">Save mode</button>
+              <label>Goal cycle<select id="cycle-duration"><option value="0">Manual</option><option value="604800">Weekly · 7 days</option><option value="1209600">Biweekly · 14 days</option><option value="2592000">Every 30 days</option></select></label>
+              <label>Anchor (UTC)<input type="datetime-local" id="cycle-anchor" step="1" /></label>
+              <button type="button" id="save-cycle" class="btn btn-small btn-outline">Save cycle</button>
+            </div>
+            <p id="budget-status" class="fineprint" role="status"></p>
+            <p class="fineprint">Pro-rata requires zero fixed amounts. Cycles use the first destination execution time; 30 days is not a calendar month. Changing the cycle schedule resets current progress. Reordering or editing amounts preserves a saved destination's goal; a new payee starts a new identity. Zero target disables the cap.</p>
             <p id="goals-status" class="fineprint" role="status"></p>
             <div id="goals-list"></div>
             <div class="execution-preview">
@@ -289,7 +299,7 @@
               <p class="fineprint">Uses the sample amount above. Live checks use saved onchain rules and the current wallet balance, assuming standard token transfers succeed. The destination chart above is an unconstrained draft preview.</p>
             </div>
             <details class="plan-backup"><summary>Back up or restore a plan</summary>
-              <p class="fineprint">Includes destination labels, targets and control settings. Restores a draft for this network and token; save destinations, controls and each goal separately. Paid progress and allowances are never imported.</p>
+              <p class="fineprint">Includes destinations, targets, mode, cycle and controls. Restores a draft for this network and token; review and save each setting separately. Paid progress and allowances are never imported.</p>
               <button id="plan-export" class="btn btn-small btn-outline" type="button">Download plan JSON</button>
               <label for="plan-json">Plan JSON</label><textarea id="plan-json" rows="5" maxlength="50000" placeholder="Paste your PaydaySplit plan backup"></textarea>
               <button id="plan-import" class="btn btn-small btn-outline" type="button">Restore draft</button>

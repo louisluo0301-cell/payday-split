@@ -11,7 +11,8 @@
     "preview": "vite preview --host 127.0.0.1",
     "local:watch": "node script/local-watch-loop.mjs",
     "local:process": "node script/local-process.mjs",
-    "local:goals": "node script/local-goals.mjs"
+    "local:goals": "node script/local-goals.mjs",
+    "local:budget": "node script/local-goals.mjs --budget"
   },
   "dependencies": {
     "ethers": "^6.13.4"

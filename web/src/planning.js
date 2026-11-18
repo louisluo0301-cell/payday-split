@@ -5,6 +5,7 @@ import {parsePlan} from './plan-backup.js';
 export function createPlanning(ctx) {
   const {state, deployment, chainId, $, toast, bucketFromEditor} = ctx;
   let goals = [], targets = [], signature = '', previewRequest = 0, pendingImport = false;
+  let previousIds = [], previousKeys = [], nextDraftId = 0, cycleKey = '';
   const context = () => ({chainId, decimals:state.decimals, token:deployment.token || '0x0000000000000000000000000000000000000000'});
   const units = value => {
     const amount = parseUnits(value || '0', state.decimals);
@@ -12,23 +13,49 @@ export function createPlanning(ctx) {
     return amount;
   };
   const goalAt = i => goals[i] || {target:0n, paid:0n, cycle:0n};
+  function syncCycles() {
+    if(!state.demoMode) return;
+    const c=state.cycleConfig;
+    const now=Math.floor(Date.now()/1000);
+    const period=c.duration && now>=c.anchor ? Math.floor((now-c.anchor)/c.duration) : 0;
+    const key=`${c.revision}:${period}`;
+    if(cycleKey && cycleKey!==key) goals=goals.map(g=>({...g,paid:0n}));
+    if(c.duration) goals=goals.map(g=>({...g,cycle:BigInt(period+1)}));
+    cycleKey=key;
+  }
   function sync() {
+    const oldTargets=[...targets];
+    const goalMap=new Map(previousIds.map((id,i)=>[id,goalAt(i)]));
+    const targetMap=new Map(previousIds.map((id,i)=>[id,targets[i]]));
+    state.buckets.forEach(b=>{
+      const payee=b.payee.toLowerCase();
+      if(!b.id || (b.identityPayee!==undefined && b.identityPayee!==payee)) b.id=`draft-${++nextDraftId}`;
+      b.identityPayee=payee;
+    });
+    const ids=state.buckets.map(b=>b.id);
+    const keys=state.buckets.map(b=>{
+      try { const value=bucketFromEditor(b); return `${value.payee.toLowerCase()}:${value.fixedAmount}:${value.bps}:${value.active}`; }
+      catch { return JSON.stringify([b.payee,b.fixed,b.bps,b.active]); }
+    });
+    goals=ids.map(id=>goalMap.get(id)||{target:0n,paid:0n,cycle:0n});
+    targets=ids.map((id,i)=>targetMap.get(id) ?? (pendingImport && keys[i]===previousKeys[i] ? oldTargets[i] : undefined));
+    previousIds=ids;
+    previousKeys=keys;
     // Canonical units keep imported goal drafts when saved rules return formatted values (0 -> 0.0).
     let next;
     try {
       next = JSON.stringify(state.buckets.map(bucket => {
         const b = bucketFromEditor(bucket);
-        return [b.payee.toLowerCase(),String(b.fixedAmount),b.bps,b.active];
+        return [bucket.id,b.payee.toLowerCase(),String(b.fixedAmount),b.bps,b.active];
       }));
     } catch {
       next = JSON.stringify(state.buckets.map(({payee,fixed,bps,active}) => [payee.toLowerCase(),fixed,bps,active]));
     }
     if (signature && next !== signature) {
-      goals = []; targets = [];
-      pendingImport = false;
       if (state.demoMode) state.ruleVersion += 1;
     }
     signature = next;
+    syncCycles();
     render();
   }
   function render() {
@@ -36,7 +63,7 @@ export function createPlanning(ctx) {
     if (!list) return;
     list.replaceChildren();
     $('#goals-status').textContent = state.demoMode ? 'Demo goals · progress updates after each sample income.' :
-      state.dirty ? 'Save destination changes first. A new rule version starts with no targets.' :
+      state.dirty ? 'Save destination changes first. Saved identities retain goals; a new payee starts fresh.' :
       state.account ? `Targets for saved rule v${state.ruleVersion}.` : 'Connect to manage saved onchain goals.';
     state.buckets.forEach((bucket, i) => {
       const goal = goalAt(i);
@@ -56,6 +83,7 @@ export function createPlanning(ctx) {
       input.addEventListener('input',()=>{targets[i]=input.value;}); label.append(input);
       const cycleLabel=document.createElement('label'); cycleLabel.className='goal-cycle';
       const cycle=document.createElement('input'); cycle.type='checkbox'; cycle.dataset.cycle=String(i);
+      cycle.disabled=state.cycleConfig.duration>0;
       cycleLabel.append(cycle,document.createTextNode('Start new cycle'));
       const button=document.createElement('button'); button.type='button'; button.className='btn btn-small btn-outline';
       button.textContent='Save target'; button.dataset.saveGoal=String(i);
@@ -69,6 +97,8 @@ export function createPlanning(ctx) {
     try {
       const target=units(value);
       if(state.demoMode) {
+        syncCycles();
+        if(reset && state.cycleConfig.duration>0) throw new Error('Automatic cycles reset at the configured boundary.');
         const old=goalAt(index);
         goals[index]={target,paid:reset?0n:old.paid,cycle:reset||old.cycle===0n?old.cycle+1n:old.cycle};
       } else {
@@ -93,7 +123,7 @@ export function createPlanning(ctx) {
       goals=values.map(g=>({target:g.target,paid:g.paid,cycle:g.cycle}));
       if(!pendingImport) targets=[];
       render();
-    } catch { $('#goals-status').textContent='Goals could not be read. Verify the connection and that your deployment supports v6.'; }
+    } catch { $('#goals-status').textContent='Goals could not be read. Verify the connection and that your deployment supports v7.'; }
   }
   async function preview() {
     const request=++previewRequest;
@@ -101,7 +131,8 @@ export function createPlanning(ctx) {
       const paycheck=parseUnits(String(state.samplePaycheck),state.decimals);
       let paid,retained,reason=0;
       if(state.demoMode) {
-        const result=calculateRun(state.buckets.map(bucketFromEditor),paycheck,state.balance+paycheck,state.allowance,ctx.getPolicy(),ctx.getSpent(),undefined,goals);
+        syncCycles();
+        const result=calculateRun(state.buckets.map(bucketFromEditor),paycheck,state.balance+paycheck,state.allowance,ctx.getPolicy(),ctx.getSpent(),undefined,goals,state.allocationMode,state.cycleConfig);
         paid=result.paid; retained=result.retained;
         $('#execution-title').textContent='Next sample income';
       } else {
@@ -110,7 +141,7 @@ export function createPlanning(ctx) {
         retained=result[1]; paid=paycheck-retained; reason=Number(result[2]);
       }
       if(request!==previewRequest) return;
-      const reasons=['','User paused','Rule expired','Below minimum income','Protocol paused'];
+      const reasons=['','User paused','Rule expired','Below minimum income','Protocol paused','Cycle has not started'];
       $('#execution-result').textContent=`${formatUnits(paid,state.decimals)} ${state.symbol} routed · ${formatUnits(retained,state.decimals)} retained${reason?` · ${reasons[reason]}`:''}`;
     } catch(err) { if(request===previewRequest) $('#execution-result').textContent=err.shortMessage||err.message; }
   }
@@ -125,7 +156,10 @@ export function createPlanning(ctx) {
     try {
       const p=ctx.readPolicy();
       const policy=Object.fromEntries(Object.entries(p).map(([key,value])=>[key,typeof value==='bigint' ? (key==='validUntil'?String(value):formatUnits(value,state.decimals)) : value]));
-      const plan={schema:'paydaysplit.plan',version:1,...context(),createdAt:new Date().toISOString(),
+      const duration=Number($('#cycle-duration').value);
+      const anchor=duration ? String(Math.floor(Date.parse($('#cycle-anchor').value+'Z')/1000)) : '0';
+      const plan={schema:'paydaysplit.plan',version:2,...context(),createdAt:new Date().toISOString(),
+        allocationMode:Number($('#allocation-mode').value),cycle:{duration,anchor},
         buckets:state.buckets.map(b=>({...b,label:b.label||'',fixed:b.fixed||'0',bps:b.bps||'0'})),policy,
         goalTargets:state.buckets.map((_,i)=>targets[i]||formatUnits(goalAt(i).target,state.decimals))};
       const text=JSON.stringify(plan,null,2); parsePlan(text,context());
@@ -140,9 +174,10 @@ export function createPlanning(ctx) {
       const plan=parsePlan($('#plan-json').value,context());
       plan.buckets.forEach(bucketFromEditor); // also reject this user's wallet and this split contract
       state.buckets=plan.buckets; state.dirty=true;
+      ctx.writeBudget(plan);
       ctx.writePolicy(plan.policy); ctx.renderBuckets(); ctx.updateSummary();
       targets=plan.goalTargets; pendingImport=true; render(); preview();
-      toast('Draft restored. Review and save destinations, spending controls and each goal separately.');
+      toast('Draft restored. Review and save destinations, mode, cycle, controls and each goal separately.');
     } catch(err) {toast(err.message,true);}
   }
   function wire() {
@@ -150,6 +185,6 @@ export function createPlanning(ctx) {
     $('#plan-export').addEventListener('click',exportPlan);
     $('#plan-import').addEventListener('click',importPlan);
   }
-  function clear() {goals=[];targets=[];signature='';pendingImport=false;++previewRequest;}
-  return {sync,load,preview,record,wire,clear,getGoals:()=>goals};
+  function clear() {goals=[];targets=[];previousIds=[];previousKeys=[];signature='';cycleKey='';pendingImport=false;++previewRequest;}
+  return {sync,load,preview,record,wire,clear,getGoals:()=>{syncCycles();return goals;}};
 }

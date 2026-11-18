@@ -19,6 +19,8 @@ import { AbstractPayer } from "@reactive/src/base/AbstractPayer.sol";
 /// @dev    Non-custodial: the contract never holds principal. It pulls only amounts the user has
 ///         approved, one bucket at a time, and a failed bucket does not block the rest of the waterfall.
 contract PaydaySplit is AbstractPayer, Ownable2Step, Pausable, ReentrancyGuard {
+    uint256 public constant TOKEN_READ_GAS = 30_000;
+    uint256 public constant TOKEN_TRANSFER_GAS = 120_000;
     using SafeERC20 for IERC20;
 
     /// @notice Maximum number of buckets per (user, token). Keeps the callback gas bounded.
@@ -151,15 +153,112 @@ contract PaydaySplit is AbstractPayer, Ownable2Step, Pausable, ReentrancyGuard {
     error OnlySelf();
     error InvalidBucket();
     error GoalVersionMismatch();
+    error InvalidBucketIdentity();
+    error FixedAmountInProRata();
+    error InvalidCycle();
+    error AutomaticCycleActive();
 
-    /// @notice A user-started funding cycle, scoped to a rule version and bucket index.
+    enum AllocationMode {
+        Waterfall,
+        ProRata
+    }
+
+    struct CycleConfig {
+        uint64 anchor;
+        uint32 duration;
+        uint32 revision;
+    }
+
+    struct GoalClock {
+        uint32 revision;
+        uint64 period;
+    }
+    mapping(address => mapping(address => AllocationMode)) public allocationModes;
+    mapping(address => mapping(address => CycleConfig)) public cycleConfigs;
+    mapping(address => mapping(address => uint64)) public nextBucketId;
+    mapping(address => mapping(address => uint64[])) private _bucketIds;
+    mapping(address => mapping(address => mapping(uint256 => uint64[]))) private _versionBucketIds;
+    mapping(address => mapping(address => mapping(uint64 => address))) private _identityPayee;
+    mapping(address => mapping(address => mapping(uint64 => GoalClock))) private _goalClocks;
+    event AllocationModeSet(address indexed user, address indexed token, AllocationMode mode);
+    event CycleConfigured(address indexed user, address indexed token, uint64 anchor, uint32 duration, uint32 revision);
+    event BucketIdentities(address indexed user, address indexed token, uint256 indexed version, uint64[] ids);
+
+    /// @notice Funding progress scoped to a stable bucket identity and its effective cycle.
     ///         A zero target disables the cap without erasing previously recorded progress.
     struct BucketGoal {
         uint96 target;
         uint96 paid;
         uint64 cycle;
     }
-    mapping(address => mapping(address => mapping(uint256 => mapping(uint256 => BucketGoal)))) public bucketGoals;
+    mapping(address => mapping(address => mapping(uint64 => BucketGoal))) private _goalsById;
+
+    function getBucketIds(address user_, address token_) external view returns (uint64[] memory) {
+        return _bucketIds[user_][token_];
+    }
+
+    /// @notice Resolve an index from a rule version to its stable identity's CURRENT cycle progress.
+    /// @dev This is not a historical paid-progress snapshot.
+    function bucketGoals(address user_, address token_, uint256 version_, uint256 index_)
+        external
+        view
+        returns (uint96 target, uint96 paid, uint64 cycle)
+    {
+        uint64[] storage ids = _versionBucketIds[user_][token_][version_];
+        if (index_ >= ids.length) return (0, 0, 0);
+        BucketGoal memory goal = _currentGoal(user_, token_, ids[index_]);
+        return (goal.target, goal.paid, goal.cycle);
+    }
+
+    function _period(CycleConfig memory config) internal view returns (uint64) {
+        if (config.duration == 0 || block.timestamp < config.anchor) return 0;
+        return uint64((block.timestamp - config.anchor) / config.duration);
+    }
+
+    function _currentGoal(address user_, address token_, uint64 id_) internal view returns (BucketGoal memory goal) {
+        goal = _goalsById[user_][token_][id_];
+        CycleConfig memory config = cycleConfigs[user_][token_];
+        GoalClock memory clock = _goalClocks[user_][token_][id_];
+        uint64 period = _period(config);
+        if (clock.revision != config.revision || clock.period != period) goal.paid = 0;
+        if (config.duration != 0) goal.cycle = period + 1;
+    }
+
+    function _syncGoal(address user_, address token_, uint64 id_) internal {
+        CycleConfig memory config = cycleConfigs[user_][token_];
+        GoalClock storage clock = _goalClocks[user_][token_][id_];
+        uint64 period = _period(config);
+        if (clock.revision != config.revision || clock.period != period) {
+            _goalsById[user_][token_][id_].paid = 0;
+            clock.revision = config.revision;
+            clock.period = period;
+        }
+    }
+
+    /// @notice UTC fixed-length cycles, based on first destination execution. Zero duration selects manual cycles.
+    /// @dev Changing the schedule explicitly opens a fresh accounting generation. No calendar-month semantics.
+    function setCycleConfig(address token_, uint64 anchor_, uint32 duration_) external nonReentrant {
+        if (token_.code.length == 0) revert InvalidToken();
+        if ((duration_ == 0 && anchor_ != 0) || (duration_ != 0 && (duration_ < 1 days || duration_ > 365 days))) {
+            revert InvalidCycle();
+        }
+        CycleConfig storage config = cycleConfigs[msg.sender][token_];
+        if (config.anchor == anchor_ && config.duration == duration_) return;
+        config.anchor = anchor_;
+        config.duration = duration_;
+        config.revision += 1;
+        emit CycleConfigured(msg.sender, token_, anchor_, duration_, config.revision);
+    }
+
+    function setAllocationMode(address token_, AllocationMode mode_) external nonReentrant {
+        if (token_.code.length == 0) revert InvalidToken();
+        if (allocationModes[msg.sender][token_] == mode_) return;
+        allocationModes[msg.sender][token_] = mode_;
+        Bucket[] memory list = _buckets[msg.sender][token_];
+        uint64[] memory ids = _bucketIds[msg.sender][token_];
+        _storeBucketsWithIds(token_, list, ids);
+        emit AllocationModeSet(msg.sender, token_, mode_);
+    }
     event GoalSet(
         address indexed user,
         address indexed token,
@@ -179,8 +278,8 @@ contract PaydaySplit is AbstractPayer, Ownable2Step, Pausable, ReentrancyGuard {
         uint64 cycle
     );
 
-    /// @notice Set or extend a target. Only an explicit new cycle resets paid progress.
-    /// @dev Rule changes create a new version with fresh goals. Identical saves keep progress.
+    /// @notice Set or extend a target. Manual reset, schedule changes and automatic boundaries reset progress.
+    /// @dev Goals follow stable bucket identities; rule versions only protect against stale UI writes.
     function setBucketGoal(address token_, uint256 index_, uint256 expectedVersion_, uint96 target_, bool newCycle_)
         external
         nonReentrant
@@ -188,13 +287,18 @@ contract PaydaySplit is AbstractPayer, Ownable2Step, Pausable, ReentrancyGuard {
         if (index_ >= _buckets[msg.sender][token_].length) revert InvalidBucket();
         uint256 version = ruleVersion[msg.sender][token_];
         if (version != expectedVersion_) revert GoalVersionMismatch();
-        BucketGoal storage goal = bucketGoals[msg.sender][token_][version][index_];
+        if (newCycle_ && cycleConfigs[msg.sender][token_].duration != 0) revert AutomaticCycleActive();
+        uint64 id = _bucketIds[msg.sender][token_][index_];
+        _syncGoal(msg.sender, token_, id);
+        BucketGoal storage goal = _goalsById[msg.sender][token_][id];
         if (newCycle_ || goal.cycle == 0) {
             goal.paid = 0;
             goal.cycle += 1;
         }
         goal.target = target_;
-        emit GoalSet(msg.sender, token_, version, index_, target_, goal.paid, goal.cycle);
+        emit GoalSet(
+            msg.sender, token_, version, index_, target_, goal.paid, _currentGoal(msg.sender, token_, id).cycle
+        );
     }
 
     /// @notice Controls apply immediately on the destination, including queued callbacks.
@@ -232,6 +336,17 @@ contract PaydaySplit is AbstractPayer, Ownable2Step, Pausable, ReentrancyGuard {
         _storeBuckets(token_, copy);
     }
 
+    /// @notice Save IDs along with an ordered rule. Zero ID creates a new identity; existing IDs cannot change payee.
+    function setBucketsWithIds(address token_, Bucket[] calldata buckets_, uint64[] calldata ids_)
+        external
+        nonReentrant
+    {
+        if (token_.code.length == 0) revert InvalidToken();
+        Bucket[] memory copy = buckets_;
+        uint64[] memory ids = ids_;
+        _storeBucketsWithIds(token_, copy, ids);
+    }
+
     /// @notice Disable the rule without re-typing the buckets.
     function disableAll(address token_) external nonReentrant {
         if (token_ == address(0)) revert ZeroAddress();
@@ -247,9 +362,9 @@ contract PaydaySplit is AbstractPayer, Ownable2Step, Pausable, ReentrancyGuard {
         return _buckets[user_][token_].length;
     }
 
-    /// @notice Simulate the waterfall for a paycheck, ignoring allowance/balance checks.
+    /// @notice Simulate allocation amounts, ignoring balance, allowance, goals, cycles and policy.
     /// @dev    Amounts are aligned with the stored bucket array; inactive or unfunded buckets are 0.
-    ///         This is the exact same fixed/percentage/cap math used by executeSplit.
+    ///         Uses the selected mode, with the full paycheck as the pro-rata budget.
     /// @return payees    Payee per bucket (also for inactive buckets).
     /// @return amounts   Amount that would be paid per bucket.
     /// @return retained  Amount that would stay in the user's wallet.
@@ -269,10 +384,7 @@ contract PaydaySplit is AbstractPayer, Ownable2Step, Pausable, ReentrancyGuard {
             payees[i] = bucket.payee;
             if (!bucket.active) continue;
 
-            uint256 requested = uint256(bucket.fixedAmount);
-            if (bucket.bps > 0) {
-                requested += Math.mulDiv(paycheck_, bucket.bps, MAX_BPS);
-            }
+            uint256 requested = _requested(bucket, paycheck_, paycheck_, allocationModes[user_][token_]);
             if (requested == 0 || remaining == 0) continue;
 
             uint256 amount = requested < remaining ? requested : remaining;
@@ -298,13 +410,13 @@ contract PaydaySplit is AbstractPayer, Ownable2Step, Pausable, ReentrancyGuard {
         (uint256 balance, uint256 allowance, uint256 budget, uint8 reason) = _executionBudget(user_, token_, paycheck_);
         blocked = reason;
         if (blocked != 0) return (amounts, retained, blocked);
-        uint256 version = ruleVersion[user_][token_];
+        uint256 allocationBase = budget;
         for (uint256 i; i < list.length; ++i) {
             Bucket memory bucket = list[i];
             if (!bucket.active) continue;
-            uint256 requested = uint256(bucket.fixedAmount) + Math.mulDiv(paycheck_, bucket.bps, MAX_BPS);
+            uint256 requested = _requested(bucket, paycheck_, allocationBase, allocationModes[user_][token_]);
             uint256 amount = Math.min(Math.min(requested, retained), budget);
-            BucketGoal storage goal = bucketGoals[user_][token_][version][i];
+            BucketGoal memory goal = _currentGoal(user_, token_, _bucketIds[user_][token_][i]);
             if (goal.target > 0) amount = Math.min(amount, goal.paid >= goal.target ? 0 : goal.target - goal.paid);
             if (amount == 0 || amount > balance || amount > allowance) continue;
             amounts[i] = amount;
@@ -313,6 +425,17 @@ contract PaydaySplit is AbstractPayer, Ownable2Step, Pausable, ReentrancyGuard {
             balance -= amount;
             allowance -= amount;
         }
+    }
+
+    function _requested(Bucket memory bucket_, uint256 paycheck_, uint256 budget_, AllocationMode mode_)
+        internal
+        pure
+        returns (uint256)
+    {
+        if (mode_ == AllocationMode.ProRata) return Math.mulDiv(budget_, bucket_.bps, MAX_BPS);
+        uint256 percent = Math.mulDiv(paycheck_, bucket_.bps, MAX_BPS);
+        // Saturate at the income cap instead of overflowing for extreme simulation inputs.
+        return bucket_.fixedAmount > paycheck_ - percent ? paycheck_ : uint256(bucket_.fixedAmount) + percent;
     }
 
     function _executionBudget(address user_, address token_, uint256 paycheck_)
@@ -329,6 +452,8 @@ contract PaydaySplit is AbstractPayer, Ownable2Step, Pausable, ReentrancyGuard {
                 ? 2
                 : paycheck_ < policy.minIncome ? 3 : 0;
         if (blocked != 0) return (balance, allowance, 0, blocked);
+        CycleConfig memory config = cycleConfigs[user_][token_];
+        if (config.duration != 0 && block.timestamp < config.anchor) return (balance, allowance, 0, 5);
         budget = paycheck_;
         if (policy.maxPerRun != 0) budget = Math.min(budget, policy.maxPerRun);
         DailySpend storage spent = dailySpend[user_][token_];
@@ -337,13 +462,27 @@ contract PaydaySplit is AbstractPayer, Ownable2Step, Pausable, ReentrancyGuard {
             budget = Math.min(budget, today >= policy.dailyLimit ? 0 : policy.dailyLimit - today);
         }
         if (policy.reserve != 0) {
-            uint256 spendable = balance == type(uint256).max || balance <= policy.reserve ? 0 : balance - policy.reserve;
+            uint256 spendable = balance <= policy.reserve ? 0 : balance - policy.reserve;
             budget = Math.min(budget, spendable);
+        }
+        if (allocationModes[user_][token_] == AllocationMode.ProRata) {
+            budget = Math.min(budget, Math.min(balance, allowance));
         }
     }
 
     function _storeBuckets(address token_, Bucket[] memory buckets_) internal {
+        uint64[] memory ids = new uint64[](buckets_.length);
+        Bucket[] storage old = _buckets[msg.sender][token_];
+        for (uint256 i; i < buckets_.length && i < old.length; ++i) {
+            if (old[i].payee == buckets_[i].payee) ids[i] = _bucketIds[msg.sender][token_][i];
+        }
+        _storeBucketsWithIds(token_, buckets_, ids);
+    }
+
+    function _storeBucketsWithIds(address token_, Bucket[] memory buckets_, uint64[] memory ids_) internal {
         uint256 len = buckets_.length;
+        if (len > MAX_BUCKETS) revert TooManyBuckets();
+        if (len != ids_.length) revert InvalidBucketIdentity();
         uint256 totalBps = 0;
 
         address[] memory payees = new address[](len);
@@ -354,6 +493,24 @@ contract PaydaySplit is AbstractPayer, Ownable2Step, Pausable, ReentrancyGuard {
         for (uint256 i; i < len; ++i) {
             Bucket memory bucket = buckets_[i];
             if (bucket.bps > MAX_BPS) revert BpsTooHigh();
+            if (
+                allocationModes[msg.sender][token_] == AllocationMode.ProRata && bucket.active
+                    && bucket.fixedAmount != 0
+            ) {
+                revert FixedAmountInProRata();
+            }
+            if (ids_[i] == 0) {
+                ids_[i] = ++nextBucketId[msg.sender][token_];
+                _identityPayee[msg.sender][token_][ids_[i]] = bucket.payee;
+            } else if (
+                ids_[i] > nextBucketId[msg.sender][token_]
+                    || _identityPayee[msg.sender][token_][ids_[i]] != bucket.payee
+            ) {
+                revert InvalidBucketIdentity();
+            }
+            for (uint256 j; j < i; ++j) {
+                if (ids_[j] == ids_[i]) revert InvalidBucketIdentity();
+            }
 
             if (bucket.active) {
                 if (bucket.payee == address(0) || bucket.payee == msg.sender || bucket.payee == address(this)) {
@@ -371,7 +528,8 @@ contract PaydaySplit is AbstractPayer, Ownable2Step, Pausable, ReentrancyGuard {
 
         if (totalBps > MAX_BPS) revert TotalBpsTooHigh();
 
-        bytes32 hash = keccak256(abi.encode(payees, fixedAmounts, bpsArr, activeArr));
+        bytes32 hash =
+            keccak256(abi.encode(payees, fixedAmounts, bpsArr, activeArr, ids_, allocationModes[msg.sender][token_]));
         if (ruleHash[msg.sender][token_] == hash) {
             emit RuleUnchanged(msg.sender, token_, ruleVersion[msg.sender][token_]);
             return;
@@ -386,8 +544,11 @@ contract PaydaySplit is AbstractPayer, Ownable2Step, Pausable, ReentrancyGuard {
         }
 
         uint256 version = ++ruleVersion[msg.sender][token_];
+        _bucketIds[msg.sender][token_] = ids_;
+        _versionBucketIds[msg.sender][token_][version] = ids_;
         ruleHash[msg.sender][token_] = hash;
         emit BucketsSet(msg.sender, token_, version, payees, fixedAmounts, bpsArr, activeArr);
+        emit BucketIdentities(msg.sender, token_, version, ids_);
     }
 
     // ---------------------------------------------------------------------
@@ -428,9 +589,8 @@ contract PaydaySplit is AbstractPayer, Ownable2Step, Pausable, ReentrancyGuard {
         _runWaterfall(user_, token_, paycheck_, version_, originTxHash_, logIndex_);
     }
 
-    /// @notice Manually run the current waterfall, e.g. after a stale/dropped callback.
-    /// @dev    Pulls only from msg.sender, to that user's own bucket payees. It is a recovery path,
-    ///         not a second automation path: no origin tx is recorded and no callback budget is used.
+    /// @notice Intentionally make a new manual payment using the current rule.
+    /// @dev Pulls only from msg.sender. No origin key is consumed: use recoverSplit for an unconsumed missed event.
     function runSplit(address token_, uint256 paycheck_) external nonReentrant whenNotPaused {
         if (paycheck_ == 0) return;
         uint256 version = ruleVersion[msg.sender][token_];
@@ -478,6 +638,7 @@ contract PaydaySplit is AbstractPayer, Ownable2Step, Pausable, ReentrancyGuard {
             spent.day = day;
             spent.amount = 0;
         }
+        uint256 allocationBase = budget;
 
         for (uint256 i; i < list.length; ++i) {
             Bucket memory bucket = list[i];
@@ -486,10 +647,7 @@ contract PaydaySplit is AbstractPayer, Ownable2Step, Pausable, ReentrancyGuard {
                 continue;
             }
 
-            uint256 requested = uint256(bucket.fixedAmount);
-            if (bucket.bps > 0) {
-                requested += Math.mulDiv(paycheck_, bucket.bps, MAX_BPS);
-            }
+            uint256 requested = _requested(bucket, paycheck_, allocationBase, allocationModes[user_][token_]);
             if (requested == 0) continue;
 
             if (remaining == 0) {
@@ -501,7 +659,8 @@ contract PaydaySplit is AbstractPayer, Ownable2Step, Pausable, ReentrancyGuard {
 
             uint256 amount = requested < remaining ? requested : remaining;
             amount = Math.min(amount, budget);
-            BucketGoal storage goal = bucketGoals[user_][token_][version_][i];
+            uint64 id = _bucketIds[user_][token_][i];
+            BucketGoal memory goal = _currentGoal(user_, token_, id);
             if (goal.target > 0) {
                 uint256 goalRemaining = goal.paid >= goal.target ? 0 : goal.target - goal.paid;
                 if (goalRemaining == 0) {
@@ -548,6 +707,8 @@ contract PaydaySplit is AbstractPayer, Ownable2Step, Pausable, ReentrancyGuard {
             spent.amount += amount;
             if (goal.target > 0) {
                 goal.paid += uint96(amount); // amount <= target - paid, both uint96
+                _syncGoal(user_, token_, id);
+                _goalsById[user_][token_][id].paid = goal.paid;
                 emit GoalFunded(user_, token_, version_, i, goal.paid, goal.target, goal.cycle);
             }
             emit Split(user_, token_, bucket.payee, paycheck_, amount, i, version_, originTxHash_, logIndex_);
@@ -558,18 +719,25 @@ contract PaydaySplit is AbstractPayer, Ownable2Step, Pausable, ReentrancyGuard {
         }
     }
 
-    /// @dev Non-reverting uint read. On malformed/reverting token metadata, return max so the
-    ///      actual transfer attempt decides the bucket outcome instead of reverting the callback.
+    /// @dev Fail closed on unreadable balances/allowances; unknown spending capacity is zero.
     function _readUint(address target_, bytes memory data_) internal view returns (uint256) {
-        (bool ok, bytes memory ret) = target_.staticcall(data_);
-        if (!ok || ret.length < 32) return type(uint256).max;
-        return abi.decode(ret, (uint256));
+        bool ok;
+        uint256 value;
+        uint256 gasLimit = TOKEN_READ_GAS;
+        // Copy at most one word, even if a malicious token returns excessive data.
+        assembly ("memory-safe") {
+            let ptr := mload(0x40)
+            ok := staticcall(gasLimit, target_, add(data_, 32), mload(data_), ptr, 32)
+            if lt(returndatasize(), 32) { ok := 0 }
+            value := mload(ptr)
+        }
+        return ok ? value : 0;
     }
 
     /// @dev ERC-20 transferFrom that tolerates non-standard tokens and returns false instead of reverting.
     function _tryTransferFrom(IERC20 token_, address from_, address to_, uint256 amount_) internal returns (bool) {
         // Revert the token's state changes too if it moves funds then returns false/malformed.
-        try this.transferBucket(token_, from_, to_, amount_) {
+        try this.transferBucket{ gas: TOKEN_TRANSFER_GAS }(token_, from_, to_, amount_) {
             return true;
         } catch {
             return false;

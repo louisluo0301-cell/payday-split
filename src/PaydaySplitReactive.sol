@@ -21,7 +21,7 @@ contract PaydaySplitReactive is AbstractReactive, Ownable2Step {
 
     uint256 public constant MAX_BUCKETS = 8;
     uint16 public constant MAX_TOTAL_BPS = 10_000;
-    uint64 public constant CALLBACK_GAS_LIMIT = 900_000;
+    uint64 public constant CALLBACK_GAS_LIMIT = 1_500_000;
     uint256 public constant USER_CALLBACK_LIMIT = 100;
 
     uint8 public constant SKIP_INACTIVE = 1;
