@@ -29,7 +29,7 @@
 - **原生 ETH**。收款方应分享专用收款合约地址。发送端需要为执行包装和转账留出 gas。分账资产及留存为 WETH；可以用 WETH 合约解包。普通钱包直接收到 ETH 时不会触发本模块。
 - **Aave**。同一资产支持一个自动供给目的地。供给和该桶的 ERC-20 支付原子执行，失败时该桶不会滞留资金。Aave 停止供给、额度用完或资产不受支持时会失败。利率随储备变化，提现受流动性及用户 Aave 头寸约束。模块不会借款。误转入模块的底层资产可由受益人调用 `withdrawIdle` 取回。
 - **冷静期**。资金桶没有管理员绕过入口。到期提款只回到创建该桶的钱包。释放时保留该桶为活动收款方，或先暂停计划，避免退出资金被收入监听再次分配。
-- **跨链**。钱包签名分别在两个测试网完成。Circle 标准模式等待来源达到最终性，费用以用户设定上限为界。目标链先校验证明格式、地址、资产、手续费和 nonce，再通过 Circle 合约预演。实际收款以 Sepolia 铸造的 ERC-20 Transfer 为准。已有签名可用原来源哈希继续查询，重复铸造由 Circle 的 nonce 状态保护。
+- **跨链**。钱包签名分别在两个测试网完成。Circle 标准模式等待来源达到最终性，费用以用户设定上限为界。来源销毁前必须通过合约预演，费用查询回滚时仍保持此条件。未使用的授权可在 Base Sepolia 撤销。目标链先校验证明格式、地址、资产、手续费和 nonce，再通过 Circle 合约预演。实际收款以 Sepolia 铸造的 ERC-20 Transfer 为准。已有签名可用原来源哈希继续查询，重复铸造由 Circle 的 nonce 状态保护。
 - **报告**。首次回调里的分出额和留存额是那一刻的结果。后续重试付款会另发 `RetryClosed` 事件，面板显示近期处理状态。
 
 协议资料：[Reactive Cron](https://dev.reactive.network/reactive-contracts#subscribing-to-cron-events) · [Aave V3 Pool](https://aave.com/docs/aave-v3/smart-contracts/pool) · [Circle CCTP 合约地址](https://developers.circle.com/cctp/references/contract-addresses) · [CCTP V2 消息格式](https://developers.circle.com/cctp/references/technical-guide)

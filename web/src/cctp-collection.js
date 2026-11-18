@@ -125,20 +125,40 @@ export function wireCctpCollection({ $, deployment, demoMode }) {
     const asset = new Contract(sourceUsdc, ERC20, signer);
     const cctp = new Contract(messenger, MESSENGER, signer);
     const [balance, allowance, minFee] = await Promise.all([
-      asset.balanceOf(signer.address), asset.allowance(signer.address, messenger), cctp.getMinFeeAmount(amount),
+      asset.balanceOf(signer.address),
+      asset.allowance(signer.address, messenger),
+      cctp.getMinFeeAmount(amount).catch(() => null),
     ]);
     if (balance < amount) throw new Error('Insufficient Base Sepolia USDC.');
-    if (minFee > maxFee) throw new Error(`Circle's current minimum is ${formatUnits(minFee, 6)} USDC. Review your fee cap.`);
+    if (minFee !== null && minFee > maxFee) {
+      throw new Error(`Circle's current minimum is ${formatUnits(minFee, 6)} USDC. Review your fee cap.`);
+    }
     if (allowance !== amount) {
       status.textContent = `Approve exactly ${formatUnits(amount, 6)} USDC for Circle on Base Sepolia.`;
       await (await asset.approve(messenger, amount)).wait();
     }
     await assertWallet(provider, signer, sourceChain, 'Base Sepolia');
+    const burnArgs = [amount, destinationDomain, zeroPadValue(signer.address, 32), sourceUsdc, ZeroHash, maxFee, finality];
+    try { await cctp.depositForBurn.staticCall(...burnArgs); }
+    catch { throw new Error('Circle did not accept the burn preview. Review your fee cap and route, or revoke the unused approval.'); }
+    await assertWallet(provider, signer, sourceChain, 'Base Sepolia');
     status.textContent = 'Review the Base Sepolia burn. Mint recipient is this same wallet on Sepolia.';
-    const tx = await cctp.depositForBurn(amount, destinationDomain, zeroPadValue(signer.address, 32), sourceUsdc, ZeroHash, maxFee, finality);
+    const tx = await cctp.depositForBurn(...burnArgs);
     localHash(tx.hash);
     await tx.wait();
     status.textContent = 'Burn confirmed. Keep the hash and switch to Sepolia to check the attestation and mint.';
+  }));
+
+  $('#bridge-revoke').addEventListener('click', () => action(async (provider, signer) => {
+    await assertWallet(provider, signer, sourceChain, 'Base Sepolia');
+    const asset = new Contract(sourceUsdc, ERC20, signer);
+    if (await asset.allowance(signer.address, messenger) === 0n) {
+      status.textContent = 'There is no active Circle approval to revoke.';
+      return;
+    }
+    await assertWallet(provider, signer, sourceChain, 'Base Sepolia');
+    await (await asset.approve(messenger, 0n)).wait();
+    status.textContent = 'Base Sepolia Circle approval revoked.';
   }));
 
   $('#bridge-mint').addEventListener('click', () => action(async (provider, signer) => {
