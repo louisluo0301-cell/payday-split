@@ -2,6 +2,8 @@
 
 本任务独立于 PaydaySplit 产品部署，目标是在 Lasna 真实部署并至少收到一次由系统发送的 `react()`。
 
+**2026-11-18 已真实执行并由用户完成提交。** 合约、两链交易、截图与审核状态见 [学习记录](../notes/2026-11-18-first-transfer-monitor.md)，RPC 核验数据见 [机器证据](../deployments/camp-transfer-monitor.json)。
+
 ## 实现
 
 - [CampTestToken.sol](../src/CampTestToken.sol)：6 位小数、固定初始供应的 Sepolia 测试代币 RCT，无价值。
@@ -20,11 +22,11 @@
 ```powershell
 forge test --match-contract CampTransferMonitorTest -vv
 forge build
-node web/script/camp-build.mjs
 cd web
 npm ci
+node script/camp-build.mjs
 npm run dev -- --port 5184 --strictPort
-# http://127.0.0.1:5184/camp-task.html
+# http://127.0.0.1:5184/camp-task-ready.html
 ```
 
 部署页使用指定测试钱包 0x90D2A64b86cB547d729ce61101FcD835d512e55a。使用者在 MetaMask 手动确认连接、网络切换和交易，页面不读取/保存私钥。只允许 Ethereum Sepolia 11155111 与 Lasna 5318007。
@@ -39,4 +41,4 @@ node web/script/camp-verify.mjs <监听合约地址> <监听部署交易> <代�
 
 脚本只读 RPC：检查两条真实网络的 chainId、合约 owner/资产/阈值、来源 Transfer、Lasna TransferObserved、同笔自动退订事件、最终 count=1/remaining=0/subscribed=false、无欠费，并输出 `deployments/camp-transfer-monitor.json`。没有真实系统日志时不会生成“已完成”证据。
 
-最终提交需要合约 Reactscan 链接、一次真实 react() 交易链接、一句话订阅过滤条件。机器证据和提交笔记在验证成功后更新；仅通过本地测试不等于完成链上任务。
+最终提交需要合约 Reactscan 链接、一次真实 react() 交易链接、一句话订阅过滤条件。本次均已保存；提交状态来自用户报告，审核结果尚未核实。

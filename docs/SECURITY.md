@@ -1,5 +1,7 @@
 # Security — Reactive Income Waterfall
 
+v8 health checks are read-only diagnostics. They verify actual RPC chain IDs before contract queries, treat unavailable data as unknown, count prepaid reserves as fee credit, and require successful rechecks before clearing an issue. Alerts are in-page and do not constitute a background monitoring service or an execution guarantee. See [UPGRADE-v8.md](UPGRADE-v8.md) and the current [dependency scans](../deployments/npm-audit-v8.json).
+
 The waterfall is designed to be bounded even when a bucket is wrong, a payee is blacklisted, or a callback arrives after the user changed the rule.
 
 ## 1. Assets and actors

@@ -13,11 +13,14 @@ const key=`paydaysplit.camp.v1:${EXPECTED.toLowerCase()}`;
 let state;
 try{state=JSON.parse(localStorage.getItem(key)||'{}');}catch{state={};}
 let busy=false,connected=false,artifacts;
-const injected=window.ethereum?.providers?.find(p=>p.isMetaMask)||window.ethereum;
+const selectedProvider=window.ethereum?.providers?.find(p=>p.isMetaMask)||window.ethereum;
+let lastWalletMethod='';
+const injected=selectedProvider?{request:async payload=>{lastWalletMethod=payload.method;return selectedProvider.request(payload);}}:undefined;
 function save(){localStorage.setItem(key,JSON.stringify(state));render();}
 function status(text,error=false){$('#status').textContent=text;$('#status').classList.toggle('error',error);}
 function render(){
   $('#connect').disabled=busy;
+  $('#authorize-lasna').disabled=busy;
   $('#fund').disabled=busy||!connected||!!state.fundingTx;
   $('#deploy-token').disabled=busy||!connected||!!state.tokenTx||!artifacts;
   $('#deploy-monitor').disabled=busy||!connected||!state.token||!!state.monitorTx||!artifacts;
@@ -27,7 +30,7 @@ function render(){
   for(const [label,value] of Object.entries({代币:state.token||'待部署',监听合约:state.monitor||'待部署',成功计数:state.count??'待执行',剩余次数:state.remaining??'待执行',订阅状态:state.subscribed===undefined?'待查询':state.subscribed?'监听中':'已自动退订'})) {
     const dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=label;dd.textContent=String(value);$('#results').append(dt,dd);
   }
-  if(state.reactTx&&state.count==='1'&&state.remaining==='0'&&state.subscribed===false) $('#proof').value=`合约：https://lasna.reactscan.net/address/${state.monitor}\nreact() 交易：https://lasna.reactscan.net/tx/${state.reactTx}\n来源转账：https://sepolia.etherscan.io/tx/${state.originTx}\n订阅条件：只监听 Sepolia 上我部署的 RCT 代币 ${state.token} 的 ERC20 Transfer，单笔金额严格超过 0.5 RCT 才计数，最多处理 1 次后自动退订；部署充值 0.1 lREACT。`;
+  if(state.reactTx&&state.originTx&&state.observedOriginTx?.toLowerCase()===state.originTx.toLowerCase()&&state.count==='1'&&state.remaining==='0'&&state.subscribed===false) $('#proof').value=`合约：https://lasna.reactscan.net/address/${state.monitor}\nreact() 交易：https://lasna.reactscan.net/tx/${state.reactTx}\n来源转账：https://sepolia.etherscan.io/tx/${state.originTx}\n订阅条件：只监听 Sepolia 上我部署的 RCT 代币 ${state.token} 的 ERC20 Transfer，单笔金额严格超过 0.5 RCT 才计数，最多处理 1 次后自动退订；部署充值 0.1 lREACT。`;
 }
 async function signerFor(network){
   if(!injected) throw new Error('未检测到 MetaMask，请在装有钱包扩展的 Chrome 中打开。');
@@ -39,13 +42,15 @@ async function signerFor(network){
     catch(error){if(error.code!==4902) throw error;await injected.request({method:'wallet_addEthereumChain',params:[config]});await injected.request({method:'wallet_switchEthereumChain',params:[{chainId:config.chainId}]});}
   }
   if(await injected.request({method:'eth_chainId'})!==config.chainId) throw new Error('网络切换尚未完成。');
+  const activeAccounts=await injected.request({method:'eth_requestAccounts'});
+  if(!activeAccounts.some(account=>account.toLowerCase()===EXPECTED.toLowerCase()))throw new Error('当前测试网尚未允许使用指定钱包，请更新钱包连接。');
   const signer=await new BrowserProvider(injected,'any').getSigner(EXPECTED);
   if((await signer.getAddress()).toLowerCase()!==EXPECTED.toLowerCase()) throw new Error('钱包账户不匹配。');
   return signer;
 }
 async function task(fn){
   if(busy)return;busy=true;render();
-  try{await fn();}catch(error){status(error.shortMessage||error.message,true);}
+  try{await fn();}catch(error){status([error.shortMessage||error.message,error.info?.error?.message||error.error?.message,`钱包方法：${lastWalletMethod}`].filter(Boolean).join('\n'),true);}
   finally{busy=false;render();}
 }
 async function refresh(){
@@ -76,6 +81,15 @@ $('#connect').addEventListener('click',()=>task(async()=>{
   await signerFor('sepolia');connected=true;$('#connection').textContent='已连接指定测试钱包';status('已连接。每笔交易仍需在 MetaMask 确认。');await refresh();
 }));
 $('#refresh').addEventListener('click',()=>task(refresh));
+$('#authorize-lasna').addEventListener('click',()=>task(async()=>{
+  if(!injected)throw new Error('未检测到 MetaMask。');
+  status('请在 MetaMask 更新网站连接：选择本测试账户，并允许 Reactive Lasna 与 Sepolia 测试网。');
+  await injected.request({method:'wallet_requestPermissions',params:[{eth_accounts:{}}]});
+  const accounts=await injected.request({method:'eth_accounts'});
+  connected=accounts.some(account=>account.toLowerCase()===EXPECTED.toLowerCase());
+  if(!connected)throw new Error('尚未授权本测试账户。');
+  $('#connection').textContent='已连接指定测试钱包';status('钱包连接已更新，可以重试 Lasna 部署。');await refresh();
+}));
 $('#fund').addEventListener('click',()=>task(async()=>{
   if(await readers.lasna.getBalance(EXPECTED)>=parseEther('0.2')){status('Lasna 余额已足够本任务，无需再次兑换。');return;}
   status('请在 MetaMask 核对：Sepolia → 官方水龙头，0.005 测试 ETH，接收地址为本钱包。');
@@ -97,9 +111,18 @@ $('#deploy-monitor').addEventListener('click',()=>task(async()=>{
   if(await readers.lasna.getCode(SYSTEM)==='0x')throw new Error('Lasna 系统合约缺失，停止部署。');
   status('请在 MetaMask 确认 Lasna 网络切换和监听合约部署，附带 0.1 lREACT。');
   const signer=await signerFor('lasna');
-  const a=artifacts.contracts.monitor,c=await new ContractFactory(a.abi,a.bytecode,signer).deploy(state.token,500000n,1n,{value:parseEther('0.1')});
-  state.monitorTx=c.deploymentTransaction().hash;save();
-  const receipt=await c.deploymentTransaction().wait();state.monitor=receipt.contractAddress;state.monitorBlock=receipt.blockNumber;save();status('监听合约已部署并充值，已订阅。现在可以发送测试转账。');await refresh();
+  const a=artifacts.contracts.monitor,factory=new ContractFactory(a.abi,a.bytecode,signer);
+  // Use the RPC gas price explicitly for custom-network wallet compatibility.
+  const gasPrice=BigInt(await readers.lasna.send('eth_gasPrice',[]));
+  const deploy=await factory.getDeployTransaction(state.token,500000n,1n,{value:parseEther('0.1'),type:0,gasPrice});
+  const estimate=await readers.lasna.estimateGas({...deploy,from:EXPECTED});
+  const gasLimit=(estimate*120n+99n)/100n;
+  if(gasLimit*gasPrice+parseEther('0.1')>await readers.lasna.getBalance(EXPECTED))throw new Error('Lasna 余额不足以支付部署手续费及充值。');
+  // Let MetaMask sign a plain legacy request; monitor its receipt through the public Lasna RPC.
+  const hash=await injected.request({method:'eth_sendTransaction',params:[{from:EXPECTED.toLowerCase(),data:deploy.data,value:toBeHex(parseEther('0.1')),gas:toBeHex(gasLimit),gasPrice:toBeHex(gasPrice),type:'0x0',chainId:networks.lasna.chainId}]});
+  state.monitorTx=hash;save();
+  const receipt=await readers.lasna.waitForTransaction(hash,1,180000);if(!receipt||receipt.status!==1)throw new Error('监听合约部署未成功，请保留交易哈希检查。');
+  state.monitor=receipt.contractAddress;state.monitorBlock=receipt.blockNumber;save();status('监听合约已部署并充值，已订阅。现在可以发送测试转账。');await refresh();
 }));
 $('#trigger').addEventListener('click',()=>task(async()=>{
   const monitor=new Contract(state.monitor,artifacts.contracts.monitor.abi,readers.lasna);
@@ -115,7 +138,18 @@ $('#download').addEventListener('click',()=>{
   const a=document.createElement('a');a.href=url;a.download='camp-transfer-monitor.json';a.click();URL.revokeObjectURL(url);
 });
 try{
-  const response=await fetch('/camp-artifacts.json');if(!response.ok)throw new Error('部署产物尚未生成，请先运行 camp-build.mjs。');artifacts=await response.json();await refresh();
+  const response=await fetch('/camp-artifacts.json');if(!response.ok)throw new Error('部署产物尚未生成，请先运行 camp-build.mjs。');artifacts=await response.json();
+  const accounts=injected?await injected.request({method:'eth_accounts'}):[];
+  connected=accounts.some(account=>account.toLowerCase()===EXPECTED.toLowerCase());
+  if(connected)$('#connection').textContent='已连接指定测试钱包';
+  if(injected){
+    try{
+      const [chain,permissions]=await Promise.all([injected.request({method:'eth_chainId'}),injected.request({method:'wallet_getPermissions'})]);
+      $('#wallet-diagnostics').textContent=JSON.stringify({chain,permissions},(_,value)=>typeof value==='string'&&/^0x[0-9a-f]{40}$/i.test(value)&&value.toLowerCase()!==EXPECTED.toLowerCase()?'[other approved account]':value,2);
+    }catch(error){$('#wallet-diagnostics').textContent=`连接诊断：${error.message}`;}
+  }
+  await refresh();
+  if(!state.monitor)status('已加载当前 Lasna 部署参数，指定钱包连接状态已检查。');
 }catch(error){status(error.shortMessage||error.message,true);}
 render();
 setInterval(()=>{if(!busy)refresh().catch(error=>status(`状态查询失败：${error.shortMessage||error.message}`,true));},10000);

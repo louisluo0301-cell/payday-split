@@ -10,9 +10,11 @@
 
 - **Omni 实现**：使用 `reactive-lib-omni`、`onlySystem` 和 `SYSTEM.requestCallbackV_1_0`；回调首参数保留 `address(0)`，由网络注入 Reactive 合约地址。
 - **费用机制实测**：[Lasna 三参数查询与三问回答](docs/LASNA-FEES-NOTE.md)，附 [cast 原始输出](deployments/lasna-fees.json)。
+- **首次真实部署已提交**：[Sepolia Transfer → Lasna react() 完成记录](notes/2026-11-18-first-transfer-monitor.md)，包含真实交易、自动退订和截图；平台审核结果尚未核实。
 - **项目实践**：[v7 功能与验收记录](docs/UPGRADE-v7.md)、[测试复现方法](docs/TESTING.md)、[本地完整流程证据](deployments/31337.evidence.json)。
-- **相似项目研究与勘误**：[GitHub 参考项目](docs/REFERENCE-RESEARCH-v7.md)、[整体代码复核记录](docs/CODE-REVIEW-v7.md)。
-- **当前进度**：本地验证已完成；真实测试网部署与外部审计待完成。
+- **相似项目研究与勘误**：[GitHub 参考项目](docs/REFERENCE-RESEARCH-v7.md)、[最新代码复核记录](docs/CODE-REVIEW-v8.md)。
+- **v8 自动化健康检查**：[功能与验收](docs/UPGRADE-v8.md)：费用余额/预付储备/欠费、回调次数、规则镜像、用户限额、异常提示和恢复记录。
+- **当前进度**：独立监听作业已在真实测试网验证；PaydaySplit 核心的真实回调分账部署与外部审计待完成。
 
 ![PaydaySplit demo](docs/demo-preview.gif)
 
@@ -22,14 +24,14 @@
 
 ![Payday receipt](docs/receipt-example.png)
 
-> **v7 update (2026-11-18):** waterfall/pro-rata modes, stable bucket identities, automatic fixed-length payday cycles, budget templates and plan backup v2. See [behavior and migration](docs/UPGRADE-v7.md), [GitHub research](docs/REFERENCE-RESEARCH-v7.md), [code review](docs/CODE-REVIEW-v7.md) and the [六维度完整后续优化方案](docs/OPTIMIZATION-PLAN.md). Native ETH routing, bridges, yield and failed-bucket retries remain planned. Existing screenshots/video show the earlier UI.
+> **v8 update (2026-11-18):** shared dashboard/CLI health checks, fee debt and reserve credit, subscription/user-control diagnostics, deduplicated alerts and recovery history. [v8 verification](docs/UPGRADE-v8.md) includes a real independent Sepolia → Lasna observation; PaydaySplit core callback deployment remains pending. [v7 allocation and cycle features](docs/UPGRADE-v7.md) remain available. Native ETH routing, bridges, yield and failed-bucket retries remain planned. Existing product screenshots/video show the earlier UI.
 
 ## English quick read
 
 **PaydaySplit is a non-custodial income waterfall.** Every payment in a configured ERC-20 is routed by priority in one Reactive callback: the default preset puts fixed bills first (rent, salaries), then percentage buckets (tax, savings, bonus), and the remainder stays in the wallet. Up to 8 buckets, versioned rules, per-bucket failure isolation, and a manual recovery path.
 
-- **87 Foundry tests**, including fuzz preview-vs-execution, malicious/non-standard ERC-20s, replay, version monotonicity, and per-user callback budgets.
-- **Local Anvil full loop is verified** — see `deployments/31337.evidence.json`; **testnet is not deployed yet** (requires your wallet/funds).
+- **98 Foundry tests** (87 core + 11 observer) and **33 frontend tests**, including fuzz allocation checks, malicious tokens, replay, budgets and automation health failures/recovery.
+- **Local Anvil full loop is verified** — see `deployments/31337.evidence.json`; the **PaydaySplit core testnet callback/payout remains pending**. The independent camp observer has separate real testnet evidence.
 - **No-wallet demo:** `cd web && npm install && npm run dev`, then open `/?demo=1`.
 - **Local full loop:** `pwsh ./script/local-demo.ps1`; with MetaMask, also run `cd web && npm run local:watch`.
 - **Video:** `docs/payday-split-demo.mp4` (2:57, local Anvil; Chinese narration + English subtitles).
@@ -37,10 +39,11 @@
 
 | Evidence | Status |
 |---|---|
-| Contracts + 87 tests | ✅ local; CI workflow included |
+| Contracts: 98 tests; frontend: 33 tests | ✅ local; CI workflow included |
 | Local Anvil end-to-end (Transfer → react → callback → Split/Retained) | ✅ verified |
 | Demo mode / judge quick path | ✅ `?demo=1` |
-| Sepolia + Lasna deployment | ⏳ needs funded test wallet (see `docs/REMAINING_TASKS.md`) |
+| PaydaySplit core Sepolia + Lasna deployment | ⏳ callback/payout verification pending (see `docs/REMAINING_TASKS.md`) |
+| Independent camp observer | ✅ real Sepolia → Lasna observation and automatic unsubscribe; submitted by user |
 | Public GitHub | ✅ https://github.com/louisluo0301-cell/payday-split |
 | DoraHacks submission | ⏳ pending |
 
@@ -332,6 +335,7 @@ pwsh ./script/verify.ps1
 ## 10. 文档
 
 - [六维度完整后续优化方案（含里程碑与验收）](docs/OPTIMIZATION-PLAN.md)
+- [v8 健康检查与真实监听证据](docs/UPGRADE-v8.md)
 - [v7 新功能、证据与迁移限制](docs/UPGRADE-v7.md)
 - [GitHub 相似项目研究与采用依据](docs/REFERENCE-RESEARCH-v7.md)
 - [代码勘误与依赖安全公告](docs/CODE-REVIEW-v7.md)

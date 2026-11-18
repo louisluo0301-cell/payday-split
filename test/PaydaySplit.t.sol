@@ -47,6 +47,10 @@ contract MockSystem {
         return 0;
     }
 
+    function reserves(address) external pure returns (uint256) {
+        return 0;
+    }
+
     function subCount() external view returns (uint256) {
         return subs.length;
     }
@@ -77,6 +81,10 @@ contract MockSystem {
 /// @dev Mimics the Callback Proxy: injects the Reactive address into the first payload argument.
 contract MockProxy {
     function debt(address) external pure returns (uint256) {
+        return 0;
+    }
+
+    function reserves(address) external pure returns (uint256) {
         return 0;
     }
 

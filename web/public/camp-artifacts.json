@@ -1,6 +1,6 @@
 {
   "compiler": "0.8.29",
-  "generatedAt": "2026-11-18T08:33:08.483Z",
+  "generatedAt": "2026-11-18T09:07:42.328Z",
   "contracts": {
     "token": {
       "name": "CampTestToken",

@@ -1,0 +1,44 @@
+{
+  "status": "verified-real-testnet",
+  "verifiedAt": "2026-11-18T09:16:58.751Z",
+  "wallet": "0x90D2A64b86cB547d729ce61101FcD835d512e55a",
+  "networks": {
+    "origin": {
+      "name": "Ethereum Sepolia",
+      "chainId": 11155111
+    },
+    "reactive": {
+      "name": "Lasna",
+      "chainId": 5318007
+    }
+  },
+  "monitor": "0xd1ad836170fBe9d5291D26BC372c4D81108d7378",
+  "token": "0x5a6EaDc43049CC309eC1D4881090E2dbACfB2EDe",
+  "threshold": "500000",
+  "count": "1",
+  "remaining": "0",
+  "subscribed": false,
+  "totalVolume": "1000000",
+  "origin": {
+    "tx": "0x21ed5bc76f6eb16f5f5d7db5ee907beb82735082aab6968c4360d0280a722729",
+    "logIndex": "8",
+    "block": 12160493,
+    "amount": "1000000"
+  },
+  "react": {
+    "tx": "0x58119dd10f92acd967dcd3931c396fa855af3f8977a905e3ad5cd3d235a45c6b",
+    "block": 8640739,
+    "status": 1
+  },
+  "fees": {
+    "balance": "71330600000000000",
+    "debt": "0",
+    "reserves": "0"
+  },
+  "deployments": {},
+  "links": {
+    "contract": "https://lasna.reactscan.net/address/0xd1ad836170fBe9d5291D26BC372c4D81108d7378",
+    "react": "https://lasna.reactscan.net/tx/0x58119dd10f92acd967dcd3931c396fa855af3f8977a905e3ad5cd3d235a45c6b",
+    "origin": "https://sepolia.etherscan.io/tx/0x21ed5bc76f6eb16f5f5d7db5ee907beb82735082aab6968c4360d0280a722729"
+  }
+}
