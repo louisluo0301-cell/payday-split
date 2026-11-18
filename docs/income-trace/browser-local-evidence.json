@@ -1,0 +1,92 @@
+{
+  "environment": "Local Anvil, mocked Reactive system and callback proxy",
+  "browser": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/157.0.0.0 Safari/537.36 Edg/157.0.0.0",
+  "visualChecks": [
+    {
+      "case": "mobile-sample",
+      "viewport": 390,
+      "summary": "Sample income · simulated data",
+      "overflow": false
+    },
+    {
+      "case": "local-completed",
+      "viewport": 1440,
+      "summary": "Verified incoming transfer for this wallet.",
+      "overflow": false
+    },
+    {
+      "case": "local-recovery-preview",
+      "viewport": 1440,
+      "summary": "Verified incoming transfer for this wallet.",
+      "overflow": false
+    }
+  ],
+  "evidence": {
+    "schema": "paydaysplit.income-trace",
+    "version": 1,
+    "mode": "chain",
+    "checkedAt": "2026-11-18T12:31:53.193Z",
+    "chainId": 31337,
+    "wallet": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+    "token": "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512",
+    "source": {
+      "hash": "0x03d2b5a91fa43cbdc953e233c90bb3c256139f97c64fde42e66806891cbf1cad",
+      "logIndex": 0,
+      "from": "0x0000000000000000000000000000000000000000",
+      "amount": "1120123456",
+      "block": 12,
+      "blockHash": "0x2a48499dd714f8dcdb77a915c611ebc8bc82cb095bb356dc54c664e0a421fb48"
+    },
+    "reactive": {
+      "chainId": 31337,
+      "contract": "0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9",
+      "requested": true,
+      "txHash": "0xd197103b6c1a340ed544f497ab24330e02d214a846521a1170555b57583197f2"
+    },
+    "destination": {
+      "contract": "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0",
+      "processed": true,
+      "payout": {
+        "txHash": "0xf9042353670624c7749ef13c096fab6a49bc57e7a9bbe5e7a87126a634fda420",
+        "blockNumber": 14,
+        "transactionIndex": 0,
+        "originHash": "0x03d2b5a91fa43cbdc953e233c90bb3c256139f97c64fde42e66806891cbf1cad",
+        "logIndex": 0,
+        "splits": [
+          {
+            "payee": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+            "amount": "300000000",
+            "bucketIndex": 0,
+            "paycheck": "1120123456"
+          },
+          {
+            "payee": "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
+            "amount": "280030864",
+            "bucketIndex": 1,
+            "paycheck": "1120123456"
+          },
+          {
+            "payee": "0x90F79bf6EB2c4f870365E785982E1f101E93b906",
+            "amount": "168018518",
+            "bucketIndex": 2,
+            "paycheck": "1120123456"
+          }
+        ],
+        "retained": "372074074",
+        "totalRouted": "748049382",
+        "version": 1,
+        "skipped": 0,
+        "paycheck": "1120123456",
+        "timestamp": 1795005123,
+        "relative": "0s ago"
+      }
+    },
+    "preview": null
+  },
+  "replayCheck": {
+    "recoveryTx": "0xf9042353670624c7749ef13c096fab6a49bc57e7a9bbe5e7a87126a634fda420",
+    "delayedCallback": "0x5d06e374ae3e89ed32b21a2356bb5b14e57ed1a094f5d4ce5237bea44972d011",
+    "repeatedPaid": false
+  },
+  "uncaughtErrors": 0
+}

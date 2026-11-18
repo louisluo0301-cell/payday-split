@@ -15,6 +15,7 @@
 - **相似项目研究与勘误**：[GitHub 参考项目](docs/REFERENCE-RESEARCH-v7.md)、[最新代码复核记录](docs/CODE-REVIEW-v8.md)。
 - **v8 自动化健康检查**：[功能与验收](docs/UPGRADE-v8.md)：费用余额/预付储备/欠费、回调次数、规则镜像、用户限额、异常提示和恢复记录。
 - **健康面板视觉验收**：[桌面与手机截图](docs/visual-qa/README.md)，覆盖检查状态、费用告警、中断和恢复。
+- **单笔收入追踪与恢复**：从到账交易查回调、分账、钱包留存和可恢复金额。[GitHub 参考、截图与本地验证](docs/income-trace/README.md)。
 - **当前进度**：独立监听作业已在真实测试网验证；PaydaySplit 核心的真实回调分账部署与外部审计待完成。
 
 ![PaydaySplit demo](docs/demo-preview.gif)
@@ -31,7 +32,7 @@
 
 **PaydaySplit is a non-custodial income waterfall.** Every payment in a configured ERC-20 is routed by priority in one Reactive callback: the default preset puts fixed bills first (rent, salaries), then percentage buckets (tax, savings, bonus), and the remainder stays in the wallet. Up to 8 buckets, versioned rules, per-bucket failure isolation, and a manual recovery path.
 
-- **98 Foundry tests** (87 core + 11 observer) and **33 frontend tests**, including fuzz allocation checks, malicious tokens, replay, budgets and automation health failures/recovery.
+- **98 Foundry tests** (87 core + 11 observer) and **36 frontend tests**, covering allocation, replay, budgets, health checks and receipt-based recovery.
 - **Local Anvil full loop is verified** — see `deployments/31337.evidence.json`; the **PaydaySplit core testnet callback/payout remains pending**. The independent camp observer has separate real testnet evidence.
 - **No-wallet demo:** `cd web && npm install && npm run dev`, then open `/?demo=1`.
 - **Local full loop:** `pwsh ./script/local-demo.ps1`; with MetaMask, also run `cd web && npm run local:watch`.
@@ -40,7 +41,7 @@
 
 | Evidence | Status |
 |---|---|
-| Contracts: 98 tests; frontend: 33 tests | ✅ local; CI workflow included |
+| Contracts: 98 tests; frontend: 36 tests | ✅ local; CI workflow included |
 | Local Anvil end-to-end (Transfer → react → callback → Split/Retained) | ✅ verified |
 | Demo mode / judge quick path | ✅ `?demo=1` |
 | PaydaySplit core Sepolia + Lasna deployment | ⏳ callback/payout verification pending (see `docs/REMAINING_TASKS.md`) |

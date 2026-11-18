@@ -96,7 +96,7 @@ A failed bucket (allowance, balance, blacklisted payee, non-standard token retur
 - **No-op save detection**: `ruleHash` means re-saving an identical rule emits `RuleUnchanged` and does **not** bump `ruleVersion`, so an accidental save cannot drop an in-flight callback.
 - **Non-reverting balance/allowance reads**: a token with reverting/malformed `balanceOf`/`allowance` cannot revert the whole callback; the transfer attempt decides the bucket.
 - **Token code check**: `setBuckets` rejects an EOA token address (a no-code call would otherwise look like a successful empty-return transfer).
-- **Manual recovery**: `runSplit(token, paycheck)` lets the user run the current rule from their own balance/allowance if a callback was dropped or stale. It is user-initiated, non-custodial, and does not touch the callback budget.
+- **Manual payments and income recovery**. `runSplit(token, paycheck)` initiates a separate payment. Use `recoverSplit` for an unprocessed income. The dashboard verifies the source receipt and refreshes the payout preview before opening the wallet. Both recovery and the original callback consume the same key. See [Income trace](income-trace/README.md).
 - **Ownership**: `PaydaySplitReactive` uses `Ownable2Step`, so a lost/decommissioned owner can be replaced safely.
 - **`topUp` is additive** and emits `ToppedUp`; use `setCallbackLimit` to set an exact value. `setPaused` emits `PausedSet`.
 
@@ -108,7 +108,7 @@ A failed bucket (allowance, balance, blacklisted payee, non-standard token retur
 | Replayed older `BucketsSet` downgrades mirror | Medium | monotonic version guard |
 | Identical re-save bumps version and drops in-flight split | Medium | `ruleHash` / `RuleUnchanged` |
 | Reverting token metadata reverts whole callback | Medium | non-reverting `_readUint` |
-| No recovery after a dropped/stale callback | Medium | user-callable `runSplit` |
+| No recovery after a dropped/stale callback | Medium | user-callable `recoverSplit` with the same origin key as automatic delivery |
 | `topUp` replaced instead of added; no event | Medium | additive `topUp` + `ToppedUp`; `setCallbackLimit` |
 | Immutable reactive owner, no rotation | Medium | `Ownable2Step` |
 | EOA/no-code token treated as success | Low | `token.code.length` check |

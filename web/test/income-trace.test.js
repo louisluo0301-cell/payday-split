@@ -1,0 +1,135 @@
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { test } from 'node:test';
+import { setTimeout as wait } from 'node:timers/promises';
+import { AbiCoder, Interface, keccak256 } from 'ethers';
+import { Window } from 'happy-dom';
+import { groupWaterfallEvents, incomeKeys, incomeTransfers, matchedPayout } from '../src/income-evidence.js';
+import { createIncomeTrace } from '../src/income-trace.js';
+
+const address = n => '0x' + String(n).padStart(40, '0');
+const account = address(1);
+const token = address(2);
+const payer = address(3);
+const payee = address(4);
+const other = address(5);
+const sourceHash = '0x' + 'ab'.repeat(32);
+const callbackHash = '0x' + 'bc'.repeat(32);
+const transfer = new Interface(['event Transfer(address indexed from,address indexed to,uint256 value)']);
+
+function log(index, { from = payer, to = account, amount = 1_000_000n, emitter = token } = {}) {
+  return { ...transfer.encodeEventLog('Transfer', [from, to, amount]), address: emitter, index };
+}
+
+const receipt = {
+  hash: sourceHash, status: 1, blockNumber: 8, blockHash: '0x' + 'c0'.repeat(32),
+  logs: [log(4), log(7, { amount: 25_000_003n })],
+};
+
+test('income receipt scopes transfers to the wallet and token and uses the exact event index and amount', () => {
+  const mixed = { ...receipt, logs: [
+    log(5, { to: other }), log(6, { from: account }), log(8, { emitter: other }),
+    log(9, { amount: 0n }), { ...log(10), removed: true }, ...receipt.logs,
+  ] };
+  const transfers = incomeTransfers(mixed, sourceHash, account, token);
+  assert.deepEqual(transfers.map(({ logIndex, amount }) => [logIndex, amount]), [[4, 1_000_000n], [7, 25_000_003n]]);
+  const keys = incomeKeys(account, token, transfers[1]);
+  assert.equal(keys.destination, keccak256(AbiCoder.defaultAbiCoder().encode(
+    ['address', 'address', 'uint256', 'uint256'], [account, token, sourceHash, 7],
+  )));
+  assert.notEqual(incomeKeys(account, token, transfers[0]).reactive, keys.reactive);
+  assert.throws(() => incomeTransfers({ ...receipt, status: 0 }, sourceHash, account, token), /did not succeed/);
+  assert.throws(() => incomeTransfers(receipt, callbackHash, account, token), /does not match/);
+});
+
+test('two incomes in one callback transaction stay separate, including a retained-only run', () => {
+  function event(logIndex, amount) {
+    return {
+      transactionHash: callbackHash, blockNumber: 10, transactionIndex: 3,
+      args: { originTxHash: BigInt(sourceHash), logIndex, version: 7n, amount },
+    };
+  }
+  const split = event(7n, 10_000_000n);
+  Object.assign(split.args, { payee, bucketIndex: 0n, paycheck: 25_000_003n });
+  const groups = groupWaterfallEvents({
+    splits: [split], retained: [event(4n, 1_000_000n), event(7n, 15_000_003n)], skipped: [event(7n, 0n)],
+  });
+  const [first, second] = incomeTransfers(receipt, sourceHash, account, token);
+  assert.equal(groups.length, 2);
+  assert.equal(matchedPayout(groups, first).version, 7);
+  assert.equal(matchedPayout(groups, first).totalRouted, 0n);
+  assert.equal(matchedPayout(groups, second).totalRouted, 10_000_000n);
+  assert.equal(matchedPayout(groups, second).skipped, 1);
+  assert.equal(matchedPayout(groups, { ...second, amount: 10_000_000n }), null);
+});
+
+test('the recovery UI requires an explicit transfer and rechecks processing and the quote', async () => {
+  const window = new Window();
+  window.document.write(await readFile(new URL('../index.html', import.meta.url), 'utf8'));
+  globalThis.document = window.document;
+  const $ = selector => document.querySelector(selector);
+  let processed = false;
+  let quoteAmount = 10_000_000n;
+  const sent = [];
+  const notifications = [];
+  const provider = {
+    send: async method => ({ eth_chainId: '0xaa36a7', eth_blockNumber: '0x10' })[method],
+    getBlockNumber: async () => 16,
+    getTransactionReceipt: async () => receipt,
+  };
+  const split = {
+    processed: async () => processed,
+    ruleVersion: async () => 9n,
+    previewExecution: async (_, __, amount) => [[quoteAmount], amount - quoteAmount, 0n],
+    getBuckets: async () => [{ payee }],
+  };
+  const ctx = { account, token, chainId: 11155111, decimals: 6, symbol: 'dUSDC', split, provider, txLink: () => '' };
+  const panel = createIncomeTrace({
+    $, context: () => ctx, readReactive: async () => { throw new Error('unavailable'); },
+    readActivity: async () => [],
+    recover: async (_, income) => { sent.push(income); processed = true; },
+    toast: message => notifications.push(message),
+  });
+  async function until(predicate) {
+    for (let i = 0; i < 20; i++) {
+      if (predicate()) return;
+      await wait(5);
+    }
+    assert.fail('Income trace did not reach the expected state.');
+  }
+
+  try {
+    panel.wire();
+    $('#trace-hash').value = sourceHash;
+    $('#trace-form').dispatchEvent(new window.Event('submit'));
+    await until(() => !$('#trace-transfer-row').hidden);
+    assert.match($('#trace-status').textContent, /Found 2/);
+    assert.equal($('#trace-recover').hidden, true);
+    $('#trace-transfer').value = '7';
+    $('#trace-transfer').dispatchEvent(new window.Event('change'));
+    await until(() => !$('#trace-recover').disabled);
+    assert.match($('#trace-steps').textContent, /Could not read callback status/);
+    assert.match($('#trace-steps').textContent, /25\.000003 dUSDC/);
+
+    quoteAmount = 12_000_000n;
+    $('#trace-recover').click();
+    await until(() => !$('#trace-recover').disabled && notifications.length === 1);
+    assert.equal(sent.length, 0);
+    assert.match($('#trace-preview').textContent, /12\.0 dUSDC routed/);
+
+    $('#trace-recover').click();
+    await until(() => $('#trace-steps').textContent.includes('marked processed'));
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].logIndex, 7);
+    assert.equal(sent[0].amount, 25_000_003n);
+    assert.equal($('#trace-recover').hidden, true);
+
+    panel.open(sourceHash, 7);
+    await until(() => $('#trace-steps').textContent.includes('marked processed'));
+    assert.equal($('#trace-recover').hidden, true);
+    assert.equal(sent.length, 1);
+  } finally {
+    await window.close();
+    delete globalThis.document;
+  }
+});
