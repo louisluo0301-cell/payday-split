@@ -1,15 +1,15 @@
 # Roadmap — PaydaySplit
 
-Current release: **v8, 2026-11-18**. Full design: [OPTIMIZATION-PLAN.md](OPTIMIZATION-PLAN.md). Current additions: [UPGRADE-v8.md](UPGRADE-v8.md); core semantics: [UPGRADE-v7.md](UPGRADE-v7.md).
+Current source: **v9 modules**. See [Income modules](income-modules/README.md) for migration and local validation. The previous packaged release was [v8](UPGRADE-v8.md).
 
 | Stage | Scope | Acceptance |
 |---|---|---|
 | Shipped v8 | v7 allocation/cycles plus shared CLI/dashboard health checks, fee credit/debt, exceptions, status history and verified independent observer | 98 Foundry + 33 frontend tests, local core flow and real observer evidence |
 | Current main | [Income trace and recovery](income-trace/README.md) links each incoming transfer to the request and payout | 36 frontend tests, local browser payout and late callback replay verified |
-| M1 remaining | Bounded per-bucket retry/cancellation, actual PaydaySplit testnet callback/payout | No duplicate successful payments; failures/reordering/cycle changes tested |
-| M2 pilot | Native ETH receiver, opt-in notifications, multi-source routing, accounting exports | Independent exit, reviewed permissions and complete exception lifecycle |
-| M3 optional modules | One bridge, one streaming-pay adapter, one ERC-4626 strategy, cooldown account | Separate risk review/audit; routing works without modules |
+| v9 local pilot | Bounded retries, ETH receiver, Aave V3, withdrawal cooldown and a CCTP V2 testnet route | 106 Foundry and 39 frontend tests, local browser flows, public integrations awaiting network acceptance |
+| Validation | Deploy the complete testnet system, verify external integrations, commission independent audit | Published addresses and reproducible receipts for each path |
+| Later extensions | Multiple collection routes, streaming pay, opt-in notifications and accounting exports | Reviewed permissions and a complete exception lifecycle |
 
-Public GitHub is published. The independent monitor is deployed and its camp task was submitted by the user; platform review is unverified. PaydaySplit core testnet callback/payout deployment, updated video, external review and buildathon submission remain outstanding. Core v7 deployments are immutable; v8 health checks do not change that core. Automatic cycles are fixed-duration periods, not calendar months. Native ETH routing, bridges, streaming-pay and yield integration remain planned.
+The independent monitor is deployed and its camp task was submitted by the user. Platform review is unverified. PaydaySplit core testnet callback and payout deployment, updated video, external review and buildathon submission remain outstanding. The v9 modules require a new deployment. Automatic cycles use fixed-duration periods.
 
 Research: [REFERENCE-RESEARCH-v7.md](REFERENCE-RESEARCH-v7.md). Known issues: [CODE-REVIEW-v7.md](CODE-REVIEW-v7.md).

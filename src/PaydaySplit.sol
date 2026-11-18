@@ -10,6 +10,14 @@ import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.s
 import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
 import { IPayable } from "@reactive/src/interfaces/IPayable.sol";
 import { AbstractPayer } from "@reactive/src/base/AbstractPayer.sol";
+import { PaydayRetryQueue } from "./PaydayRetryQueue.sol";
+
+interface ISavingsBucket {
+    function asset() external view returns (address);
+    function beneficiary() external view returns (address);
+    function depositor() external view returns (address);
+    function invest(uint256 amount) external;
+}
 
 /// @title PaydaySplit — Reactive Income Waterfall
 /// @notice Routes every incoming stablecoin payment through an ordered list of buckets. Each bucket
@@ -21,6 +29,7 @@ import { AbstractPayer } from "@reactive/src/base/AbstractPayer.sol";
 contract PaydaySplit is AbstractPayer, Ownable2Step, Pausable, ReentrancyGuard {
     uint256 public constant TOKEN_READ_GAS = 30_000;
     uint256 public constant TOKEN_TRANSFER_GAS = 120_000;
+    uint256 public constant SAVINGS_TRANSFER_GAS = 350_000;
     using SafeERC20 for IERC20;
 
     /// @notice Maximum number of buckets per (user, token). Keeps the callback gas bounded.
@@ -129,6 +138,13 @@ contract PaydaySplit is AbstractPayer, Ownable2Step, Pausable, ReentrancyGuard {
     mapping(address => mapping(address => bytes32)) public ruleHash;
     /// @notice user => token => current rule version. Incremented on every setBuckets.
     mapping(address => mapping(address => uint256)) public ruleVersion;
+    mapping(address => mapping(address => address)) public savingsBucket;
+    PaydayRetryQueue public immutable retryQueue;
+    mapping(address => mapping(address => bool)) public retryEnabled;
+    mapping(address => mapping(address => uint256)) private retryEpoch;
+    event RetryPreference(address indexed user, address indexed token, bool enabled);
+    event SavingsBucketSet(address indexed user, address indexed token, address bucket);
+    error InvalidSavingsBucket();
     /// @notice keccak256(user, token, originTxHash, logIndex) => already handled.
     mapping(bytes32 => bool) public processed;
 
@@ -247,6 +263,7 @@ contract PaydaySplit is AbstractPayer, Ownable2Step, Pausable, ReentrancyGuard {
         config.anchor = anchor_;
         config.duration = duration_;
         config.revision += 1;
+        ++retryEpoch[msg.sender][token_];
         emit CycleConfigured(msg.sender, token_, anchor_, duration_, config.revision);
     }
 
@@ -296,6 +313,7 @@ contract PaydaySplit is AbstractPayer, Ownable2Step, Pausable, ReentrancyGuard {
             goal.cycle += 1;
         }
         goal.target = target_;
+        ++retryEpoch[msg.sender][token_];
         emit GoalSet(
             msg.sender, token_, version, index_, target_, goal.paid, _currentGoal(msg.sender, token_, id).cycle
         );
@@ -305,6 +323,7 @@ contract PaydaySplit is AbstractPayer, Ownable2Step, Pausable, ReentrancyGuard {
     function setPolicy(address token_, Policy calldata policy_) external nonReentrant {
         if (token_.code.length == 0) revert InvalidToken();
         policies[msg.sender][token_] = policy_;
+        ++retryEpoch[msg.sender][token_];
         emit PolicySet(msg.sender, token_, policy_);
     }
 
@@ -315,7 +334,53 @@ contract PaydaySplit is AbstractPayer, Ownable2Step, Pausable, ReentrancyGuard {
 
     /// @param proxy_  The destination chain's Callback Proxy.
     /// @param owner_  Owner (pause, bind Reactive, rescue accidentally sent tokens).
-    constructor(IPayable proxy_, address owner_) AbstractPayer(proxy_) Ownable(owner_) { }
+    constructor(IPayable proxy_, address owner_) AbstractPayer(proxy_) Ownable(owner_) {
+        retryQueue = new PaydayRetryQueue();
+    }
+
+    function setRetryEnabled(address token_, bool enabled_) external nonReentrant {
+        if (token_.code.length == 0) revert InvalidToken();
+        if (retryEnabled[msg.sender][token_] == enabled_) return;
+        retryEnabled[msg.sender][token_] = enabled_;
+        ++retryEpoch[msg.sender][token_];
+        emit RetryPreference(msg.sender, token_, enabled_);
+    }
+
+    function cancelRetry(uint256 id_) external nonReentrant {
+        retryQueue.cancel(id_, msg.sender);
+    }
+
+    function processRetries() external nonReentrant whenNotPaused {
+        retryQueue.process();
+    }
+
+    function executeRetries(address reactive_) external onlyServiceProvider onlyReactive(reactive_) nonReentrant {
+        if (!paused()) retryQueue.process();
+    }
+
+    function setSavingsBucket(address token_, address bucket_) external nonReentrant {
+        if (token_.code.length == 0) revert InvalidToken();
+        if (bucket_ != address(0)) {
+            ISavingsBucket candidate = ISavingsBucket(bucket_);
+            if (
+                candidate.asset() != token_ || candidate.beneficiary() != msg.sender
+                    || candidate.depositor() != address(this)
+            ) {
+                revert InvalidSavingsBucket();
+            }
+            Bucket[] storage buckets = _buckets[msg.sender][token_];
+            bool matched;
+            for (uint256 i; i < buckets.length; ++i) {
+                if (!buckets[i].active || buckets[i].payee != bucket_) continue;
+                if (matched) revert InvalidSavingsBucket();
+                matched = true;
+            }
+        }
+        if (savingsBucket[msg.sender][token_] == bucket_) return;
+        savingsBucket[msg.sender][token_] = bucket_;
+        ++retryEpoch[msg.sender][token_];
+        emit SavingsBucketSet(msg.sender, token_, bucket_);
+    }
 
     // ---------------------------------------------------------------------
     // Rule management
@@ -489,6 +554,7 @@ contract PaydaySplit is AbstractPayer, Ownable2Step, Pausable, ReentrancyGuard {
         uint96[] memory fixedAmounts = new uint96[](len);
         uint16[] memory bpsArr = new uint16[](len);
         bool[] memory activeArr = new bool[](len);
+        bool savingsUsed;
 
         for (uint256 i; i < len; ++i) {
             Bucket memory bucket = buckets_[i];
@@ -517,6 +583,10 @@ contract PaydaySplit is AbstractPayer, Ownable2Step, Pausable, ReentrancyGuard {
                     revert InvalidPayee();
                 }
                 if (bucket.fixedAmount == 0 && bucket.bps == 0) revert EmptyBucket();
+                if (bucket.payee == savingsBucket[msg.sender][token_]) {
+                    if (savingsUsed) revert InvalidSavingsBucket();
+                    savingsUsed = true;
+                }
                 totalBps += bucket.bps;
             }
 
@@ -639,6 +709,8 @@ contract PaydaySplit is AbstractPayer, Ownable2Step, Pausable, ReentrancyGuard {
             spent.amount = 0;
         }
         uint256 allocationBase = budget;
+        bool queue = originTxHash_ != 0 && retryEnabled[user_][token_];
+        uint256[8] memory failed;
 
         for (uint256 i; i < list.length; ++i) {
             Bucket memory bucket = list[i];
@@ -679,6 +751,7 @@ contract PaydaySplit is AbstractPayer, Ownable2Step, Pausable, ReentrancyGuard {
             }
 
             if (balance < amount || allowance < amount) {
+                if (queue) failed[i] = amount;
                 emit BucketSkipped(
                     user_,
                     token_,
@@ -694,6 +767,7 @@ contract PaydaySplit is AbstractPayer, Ownable2Step, Pausable, ReentrancyGuard {
             }
 
             if (!_tryTransferFrom(token, user_, bucket.payee, amount)) {
+                if (queue) failed[i] = amount;
                 emit BucketSkipped(
                     user_, token_, i, paycheck_, requested, SKIP_TRANSFER_FAILED, version_, originTxHash_, logIndex_
                 );
@@ -705,18 +779,75 @@ contract PaydaySplit is AbstractPayer, Ownable2Step, Pausable, ReentrancyGuard {
             remaining -= amount;
             budget -= amount;
             spent.amount += amount;
-            if (goal.target > 0) {
-                goal.paid += uint96(amount); // amount <= target - paid, both uint96
-                _syncGoal(user_, token_, id);
-                _goalsById[user_][token_][id].paid = goal.paid;
-                emit GoalFunded(user_, token_, version_, i, goal.paid, goal.target, goal.cycle);
-            }
+            _fundGoal(user_, token_, version_, i, id, goal, amount);
             emit Split(user_, token_, bucket.payee, paycheck_, amount, i, version_, originTxHash_, logIndex_);
         }
 
         if (remaining > 0) {
             emit Retained(user_, token_, remaining, version_, originTxHash_, logIndex_);
         }
+        if (queue && budget != 0) {
+            PaydayRetryQueue.RetryOrigin memory origin =
+                PaydayRetryQueue.RetryOrigin(user_, token_, version_, originTxHash_, logIndex_, paycheck_);
+            uint64 period = _period(cycleConfigs[user_][token_]);
+            uint256 epoch = retryEpoch[user_][token_];
+            uint256 queued;
+            for (uint8 i; i < list.length && budget != 0 && queued < 2; ++i) {
+                uint256 amount = Math.min(failed[i], budget);
+                if (amount != 0 && retryQueue.enqueue(origin, epoch, period, i, amount)) {
+                    budget -= amount;
+                    ++queued;
+                }
+            }
+        }
+    }
+
+    function _fundGoal(
+        address user_,
+        address token_,
+        uint256 version_,
+        uint256 index_,
+        uint64 id_,
+        BucketGoal memory goal,
+        uint256 amount
+    ) internal {
+        if (goal.target == 0) return;
+        goal.paid += uint96(amount); // Callers already checked the remaining uint96 target.
+        _syncGoal(user_, token_, id_);
+        _goalsById[user_][token_][id_].paid = goal.paid;
+        emit GoalFunded(user_, token_, version_, index_, goal.paid, goal.target, goal.cycle);
+    }
+
+    function performRetry(PaydayRetryQueue.RetryJob calldata job) external returns (PaydayRetryQueue.RetryResult) {
+        if (msg.sender != address(retryQueue)) revert OnlySelf();
+        PaydayRetryQueue.RetryOrigin calldata o = job.origin;
+        uint256 day = block.timestamp / 1 days;
+        if (
+            job.due / 1 days != day || job.epoch != retryEpoch[o.user][o.token] || !retryEnabled[o.user][o.token]
+                || job.period != _period(cycleConfigs[o.user][o.token]) || o.version != ruleVersion[o.user][o.token]
+        ) {
+            return PaydayRetryQueue.RetryResult.Invalid;
+        }
+        uint256 index = job.bucketIndex;
+        Bucket storage bucket = _buckets[o.user][o.token][index];
+        uint64 id = _bucketIds[o.user][o.token][index];
+        BucketGoal memory goal = _currentGoal(o.user, o.token, id);
+        if (goal.target != 0 && uint256(goal.paid) + job.amount > goal.target) {
+            return PaydayRetryQueue.RetryResult.Invalid;
+        }
+        (uint256 balance, uint256 allowance, uint256 budget, uint8 blocked) = _executionBudget(o.user, o.token, o.gross);
+        if (!bucket.active || blocked != 0) return PaydayRetryQueue.RetryResult.Invalid;
+        uint256 amount = job.amount;
+        if (amount > Math.min(budget, Math.min(balance, allowance))) return PaydayRetryQueue.RetryResult.Wait;
+        if (!_tryTransferFrom(IERC20(o.token), o.user, bucket.payee, amount)) return PaydayRetryQueue.RetryResult.Wait;
+        DailySpend storage spent = dailySpend[o.user][o.token];
+        if (spent.day != day) {
+            spent.day = day;
+            spent.amount = 0;
+        }
+        spent.amount += amount;
+        _fundGoal(o.user, o.token, o.version, index, id, goal, amount);
+        return PaydayRetryQueue.RetryResult.Paid;
     }
 
     /// @dev Fail closed on unreadable balances/allowances; unknown spending capacity is zero.
@@ -737,7 +868,8 @@ contract PaydaySplit is AbstractPayer, Ownable2Step, Pausable, ReentrancyGuard {
     /// @dev ERC-20 transferFrom that tolerates non-standard tokens and returns false instead of reverting.
     function _tryTransferFrom(IERC20 token_, address from_, address to_, uint256 amount_) internal returns (bool) {
         // Revert the token's state changes too if it moves funds then returns false/malformed.
-        try this.transferBucket{ gas: TOKEN_TRANSFER_GAS }(token_, from_, to_, amount_) {
+        uint256 gasLimit = savingsBucket[from_][address(token_)] == to_ ? SAVINGS_TRANSFER_GAS : TOKEN_TRANSFER_GAS;
+        try this.transferBucket{ gas: gasLimit }(token_, from_, to_, amount_) {
             return true;
         } catch {
             return false;
@@ -746,7 +878,14 @@ contract PaydaySplit is AbstractPayer, Ownable2Step, Pausable, ReentrancyGuard {
 
     function transferBucket(IERC20 token_, address from_, address to_, uint256 amount_) external {
         if (msg.sender != address(this)) revert OnlySelf();
-        token_.safeTransferFrom(from_, to_, amount_);
+        if (savingsBucket[from_][address(token_)] == to_) {
+            uint256 before_ = token_.balanceOf(to_);
+            token_.safeTransferFrom(from_, to_, amount_);
+            if (token_.balanceOf(to_) != before_ + amount_) revert InvalidSavingsBucket();
+            ISavingsBucket(to_).invest(amount_);
+        } else {
+            token_.safeTransferFrom(from_, to_, amount_);
+        }
     }
 
     // ---------------------------------------------------------------------

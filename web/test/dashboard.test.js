@@ -24,6 +24,9 @@ test('demo dashboard boots, saves controls, respects pause and manages allowance
     assert.match($('#trace-status').textContent, /simulated/);
     assert.match($('#trace-preview').textContent, /700\.0 dUSDC routed/);
     assert.equal($('#trace-recover').hidden, true);
+    assert.match($('#modules-status').textContent, /require a connected wallet/);
+    assert.equal($('#retry-toggle').disabled, true);
+    assert.equal($('#bridge-burn').disabled, true);
     $('#policy-paused').checked = true;
     $('#save-policy').click();
     assert.match($('#policy-status').textContent,/Demo controls saved/);

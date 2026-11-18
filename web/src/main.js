@@ -15,6 +15,8 @@ import { collectAutomationHealth, demoHealthReport } from "./automation-health.j
 import { createHealthPanel } from "./health-panel.js";
 import { createIncomeTrace } from "./income-trace.js";
 import { groupWaterfallEvents, incomeTransfers, matchedPayout } from "./income-evidence.js";
+import { createIncomeModules } from "./income-modules.js";
+import { wireCctpCollection } from "./cctp-collection.js";
 
 let demoPolicy = {};
 let demoSpent = 0n;
@@ -96,6 +98,13 @@ const SPLIT_ABI = [
   "function runSplit(address token, uint256 paycheck)",
   "function recoverSplit(address token,uint256 paycheck,uint256 originTxHash,uint256 logIndex)",
   "function processed(bytes32 key) view returns (bool)",
+  "function retryQueue() view returns(address)",
+  "function retryEnabled(address,address) view returns(bool)",
+  "function setRetryEnabled(address,bool)",
+  "function cancelRetry(uint256)",
+  "function processRetries()",
+  "function savingsBucket(address,address) view returns(address)",
+  "function setSavingsBucket(address,address)",
   "function previewWaterfall(address user, address token, uint256 paycheck) view returns (address[] payees, uint256[] amounts, uint256 retained)",
   "function bucketCount(address user, address token) view returns (uint256)",
   "function ruleVersion(address user, address token) view returns (uint256)",
@@ -261,6 +270,12 @@ const budgetControls = createBudgetControls({state,deployment,$,toast,planner,re
 const healthPanel = createHealthPanel({$,toast,refresh:loadReactiveStatus});
 const incomeTrace = createIncomeTrace({
   $, toast, context: incomeTraceContext, readReactive: readIncomeReaction, readActivity: loadActivity, recover: recoverIncome,
+});
+const incomeModules = createIncomeModules({
+  $, toast,
+  context: () => ({ ...incomeTraceContext(), deployment, reactiveChainId: useLocal ? 31337 : 5318007, busy: state.busy }),
+  setWalletBusy: value => { state.busy = value; },
+  stageBucket: stageModuleBucket,
 });
 let healthReadId = 0;
 let activityReadId = 0;
@@ -525,6 +540,7 @@ async function connect() {
     toast("Wallet connected. Reactive is watching this address.");
     await loadRule();
     await refreshAll();
+    incomeModules.refresh();
   } catch (err) {
     toast(humanError(err), true);
   }
@@ -535,6 +551,7 @@ function disconnect() {
   ++activityReadId;
   healthPanel.reset();
   incomeTrace.reset();
+  incomeModules.reset();
   planner.clear();
   policyDirty = false;
   state.provider = null;
@@ -712,6 +729,24 @@ function incomeTraceContext() {
     token: deployment.token, splitAddress: deployment.split, chainId, txLink: txUrl,
     reactiveTxLink: hash => useLocal ? "" : `${lasnaExplorer}/tx/${hash}`,
   };
+}
+
+function stageModuleBucket(address, label) {
+  if (state.busy) return;
+  if (state.buckets.some(bucket => bucket.payee.toLowerCase() === address.toLowerCase())) {
+    toast("This destination is already in the draft.");
+    return;
+  }
+  if (state.buckets.length >= MAX_BUCKETS) {
+    toast("Remove a destination before adding a module.", true);
+    return;
+  }
+  state.buckets.push({ label, payee: address, fixed: "", bps: "", active: false });
+  state.dirty = true;
+  renderBuckets();
+  updateSummary();
+  $(".card-rule").scrollIntoView({ block: "start" });
+  toast("Destination staged. Set its amount, enable it and save your plan.");
 }
 
 async function readIncomeReaction(ctx, income, key) {
@@ -1813,6 +1848,8 @@ function wire() {
   budgetControls.wire();
   healthPanel.wire();
   incomeTrace.wire();
+  incomeModules.wire();
+  wireCctpCollection({ $, deployment, demoMode: state.demoMode });
   $("#save-policy").addEventListener("click", savePolicy);
   document.querySelectorAll('[id^="policy-"]').forEach(el => el.addEventListener("input", () => { policyDirty = true; }));
   $("#connect-top").addEventListener("click", connect);

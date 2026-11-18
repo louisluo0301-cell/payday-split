@@ -4,8 +4,8 @@ Form draft: [docs/SUBMISSION.md](../docs/SUBMISSION.md). Current capabilities: [
 
 | Item | Status |
 |---|---|
-| Contracts: 98 Foundry tests (87 core + 11 observer/token) | Local pass |
-| Frontend: 36 tests and production build | Local pass. [Health panel](../docs/visual-qa/README.md) and [income trace](../docs/income-trace/README.md) |
+| Contracts: 106 Foundry tests | Local pass |
+| Frontend: 39 tests and production build | Local pass. [Health panel](../docs/visual-qa/README.md), [income trace](../docs/income-trace/README.md) and [v9 income modules](../docs/income-modules/README.md) |
 | Local Anvil callback/cycle evidence | [31337.evidence.json](../deployments/31337.evidence.json), [31337.budget-v7.evidence.json](../deployments/31337.budget-v7.evidence.json) |
 | Public repository | https://github.com/louisluo0301-cell/payday-split |
 | Updated product video | Pending; bundled video is historical local footage |

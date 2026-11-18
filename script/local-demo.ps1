@@ -73,7 +73,9 @@ Write-Host "Deploying DemoUSDC + PaydaySplit..." -ForegroundColor Cyan
 $out1 = & forge script script/Deploy.s.sol:DeployDest --rpc-url $rpc --broadcast --non-interactive --gas-price 100000000000 -vv 2>&1 | Out-String
 $token = [regex]::Match($out1, "TOKEN_ADDR=\s*(0x[0-9a-fA-F]{40})").Groups[1].Value
 $split = [regex]::Match($out1, "SPLIT_ADDR=\s*(0x[0-9a-fA-F]{40})").Groups[1].Value
-if (-not $token -or -not $split) { throw "Failed to parse destination addresses`n$out1" }
+$factory = [regex]::Match($out1, "MODULE_FACTORY=\s*(0x[0-9a-fA-F]{40})").Groups[1].Value
+$queue = [regex]::Match($out1, "RETRY_QUEUE=\s*(0x[0-9a-fA-F]{40})").Groups[1].Value
+if (-not $token -or -not $split -or -not $factory -or -not $queue) { throw "Failed to parse destination addresses`n$out1" }
 $env:TOKEN_ADDR = $token
 $env:SPLIT_ADDR = $split
 
@@ -82,6 +84,10 @@ $out2 = & forge script script/Deploy.s.sol:DeployReactive --rpc-url $rpc --broad
 $reactive = [regex]::Match($out2, "REACTIVE_ADDR=\s*(0x[0-9a-fA-F]{40})").Groups[1].Value
 if (-not $reactive) { throw "Failed to parse REACTIVE_ADDR`n$out2" }
 $env:REACTIVE_ADDR = $reactive
+
+$poolOut = & forge create test/IncomeModules.t.sol:AavePoolForModules --rpc-url $rpc --private-key $key --broadcast --gas-price 100000000000 --constructor-args $token 2>&1 | Out-String
+$pool = [regex]::Match($poolOut, "Deployed to: (0x[0-9a-fA-F]{40})").Groups[1].Value
+if ($LASTEXITCODE -ne 0 -or -not $pool) { throw 'Local Aave mock deployment failed.' }
 
 Write-Host "Binding + setting the demo rule..." -ForegroundColor Cyan
 & forge script script/Deploy.s.sol:Configure --rpc-url $rpc --broadcast --non-interactive --gas-price 100000000000 -vv *> $null
@@ -97,6 +103,7 @@ $deployment = [ordered]@{
     lasnaExplorer = ""
     token = $token
     split = $split
+    modules = [ordered]@{ factory = $factory; retryQueue = $queue; wrappedNative = ''; aavePool = $pool }
     reactive = $reactive
     proxy = $proxy
     deployer = $deployer

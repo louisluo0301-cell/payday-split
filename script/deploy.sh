@@ -54,6 +54,8 @@ parse_addr() {
 out1="$(run_forge script/Deploy.s.sol:DeployDest "$DEST_RPC")"
 TOKEN="$(parse_addr "$out1" TOKEN_ADDR)"
 SPLIT="$(parse_addr "$out1" SPLIT_ADDR)"
+FACTORY="$(parse_addr "$out1" MODULE_FACTORY)"
+RETRY_QUEUE="$(parse_addr "$out1" RETRY_QUEUE)"
 [ -n "$TOKEN" ] && [ -n "$SPLIT" ] || { echo "Failed to parse deployment addresses" >&2; exit 1; }
 set_env_line TOKEN_ADDR "$TOKEN"
 set_env_line SPLIT_ADDR "$SPLIT"
@@ -83,6 +85,12 @@ cat > "deployments/$CHAIN_ID.json" <<JSON
   "explorer": "$EXPLORER",
   "token": "$TOKEN",
   "split": "$SPLIT",
+  "modules": {
+    "factory": "$FACTORY",
+    "retryQueue": "$RETRY_QUEUE",
+    "wrappedNative": "${WRAPPED_NATIVE:-}",
+    "aavePool": "${AAVE_POOL:-}"
+  },
   "reactive": "$REACTIVE",
   "proxy": "$CALLBACK_PROXY",
   "deployer": "$DEPLOYER",
