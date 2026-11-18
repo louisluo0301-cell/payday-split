@@ -14,6 +14,8 @@ web/node_modules/
 web/dist/
 web/.vite/
 web/.npm-cache/
+web/public/camp-task-ready.js
+web/public/camp-task-ready.html
 
 # OS / editor
 .DS_Store

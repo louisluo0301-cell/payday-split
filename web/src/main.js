@@ -10,6 +10,8 @@ import {
 import { calculateRun } from "./waterfall.js";
 import { createPlanning } from "./planning.js";
 import { createBudgetControls } from "./budget-controls.js";
+import { collectAutomationHealth, demoHealthReport } from "./automation-health.js";
+import { createHealthPanel } from "./health-panel.js";
 
 let demoPolicy = {};
 let demoSpent = 0n;
@@ -37,6 +39,7 @@ async function savePolicy() {
       demoPolicy = policy;
       document.querySelector("#policy-status").textContent = "Demo controls saved. The next sample run applies these limits.";
       planner.preview();
+      loadReactiveStatus();
       return;
     }
     if (!state.signer) { toast("Connect your wallet to save controls.", true); return; }
@@ -46,6 +49,7 @@ async function savePolicy() {
     policyDirty = false;
     await loadPolicy();
     await planner.preview();
+    loadReactiveStatus();
     toast("Spending controls confirmed onchain.", false, tx.hash);
   } catch (err) { toast(humanError(err), true); }
   finally { state.busy = false; }
@@ -248,6 +252,8 @@ const planner = createPlanning({
   },
 });
 const budgetControls = createBudgetControls({state,deployment,$,toast,planner,refresh:refreshAll,update:updateSummary});
+const healthPanel = createHealthPanel({$,toast,refresh:loadReactiveStatus});
+let healthReadId = 0;
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                             */
@@ -515,6 +521,8 @@ async function connect() {
 }
 
 function disconnect() {
+  ++healthReadId;
+  healthPanel.reset();
   planner.clear();
   policyDirty = false;
   state.provider = null;
@@ -539,6 +547,7 @@ function disconnect() {
   setText("connect-top", "Connect wallet");
   $("#disconnect").hidden = true;
   renderDisconnected();
+  loadReactiveStatus();
 }
 
 /* ------------------------------------------------------------------ */
@@ -587,7 +596,7 @@ async function loadRule() {
 async function refreshAll() {
   if (!state.account || !configured) {
     renderDisconnected();
-    await loadReactiveStatus();
+    loadReactiveStatus();
     return;
   }
 
@@ -621,7 +630,7 @@ async function refreshAll() {
     await planner.load();
     await planner.preview();
     await loadActivity();
-    await loadReactiveStatus();
+    loadReactiveStatus();
   } catch (err) {
     toast(humanError(err), true);
   }
@@ -705,40 +714,23 @@ async function loadActivity() {
 }
 
 async function loadReactiveStatus() {
-  if (!deployment.reactive) {
-    setText("remaining-label", "not deployed");
+  if(state.demoMode){
+    healthPanel.apply(demoHealthReport({allowance:state.allowance,policy:demoPolicy,activeBuckets:state.buckets.filter(bucket=>bucket.active).length}));
     return;
   }
-
+  const request=++healthReadId,account=state.account;
   try {
-    const provider = new JsonRpcProvider(deployment.lasnaRpc || "https://lasna-rpc.rnk.dev/", 5318007, {
-      staticNetwork: true,
-    });
-    const reactive = new Contract(deployment.reactive, REACTIVE_ABI, provider);
-    const [remaining, paused] = await Promise.all([reactive.remaining(), reactive.paused()]);
-    setText(
-      "remaining-label",
-      paused ? "paused" : Number(remaining) === 0 ? "platform budget empty" : `platform fuel · ${remaining.toString()}`,
-    );
-
-    if (state.account) {
-      const [rule, userBudget] = await Promise.all([
-        reactive.getRule(state.account, deployment.token),
-        reactive.userRemaining(state.account, deployment.token),
-      ]);
-      const activeCount = rule[3].filter(Boolean).length;
-      if (Number(rule[4]) > 0) {
-        setText(
-          "reactive-note",
-          `Lasna mirrors ${activeCount} active bucket${activeCount === 1 ? "" : "s"} · v${rule[4]} · budget ${userBudget.toString()}.`,
-        );
-        if (Number(userBudget) === 0) {
-          setText("reactive-note", "Reactive is mirrored, but this user's callback budget is empty. Owner top-up needed.");
-        }
-      }
-    }
+    const report=await collectAutomationHealth({...deployment,reactiveChainId:useLocal?31337:5318007},{account});
+    if(request!==healthReadId||account!==state.account)return;
+    healthPanel.apply(report,{notify:report.status!=='unconfigured'});
+    const s=report.snapshot;
+    setText('remaining-label',s.remaining===undefined?(report.status==='unconfigured'?'not deployed':'status unknown'):s.reactivePaused?'paused':`${s.remaining} callback slots`);
+    if(account&&s.mirroredVersion!==undefined)setText('reactive-note',`Saved rule v${s.ruleVersion??'unknown'} · mirrored v${s.mirroredVersion} · user callback slots ${s.userBudget??'unknown'}. See health checks for fee funding and exceptions.`);
+    else setText('reactive-note',report.status==='unconfigured'?'Configure a verified deployment to enable live checks.':'Health checks cover platform funding. Connect a wallet to inspect your saved plan.');
   } catch {
-    setText("remaining-label", "Lasna RPC offline");
+    if(request!==healthReadId||account!==state.account)return;
+    setText("remaining-label", "status unknown");
+    healthPanel.apply({status:'unavailable',complete:false,scope:account?'saved-plan':'platform-only',alerts:[{id:'health-unavailable',severity:'warning',title:'Health checks could not complete',action:'Check the deployment configuration and RPC connection, then retry.'}],snapshot:{checkedAt:new Date().toISOString()}});
   }
 }
 
@@ -799,6 +791,7 @@ function renderBuckets() {
 
 function updateSummary() {
   const active = state.buckets.filter((bucket) => bucket.active);
+  if(state.demoMode)healthPanel.apply(demoHealthReport({allowance:state.allowance,policy:demoPolicy,activeBuckets:active.length}));
   const totalBps = active.reduce((sum, bucket) => sum + Math.round((Number(bucket.bps) || 0) * 100), 0);
   const sample = Math.max(1, Number(state.samplePaycheck) || 1000);
 
@@ -955,6 +948,7 @@ function renderAllowance() {
   btn.textContent = approved ? "Update" : "Approve";
   pill.textContent = approved ? `Allowance: ${fmt(state.allowance)}` : "Allowance —";
   planner.preview();
+  if(state.demoMode)loadReactiveStatus();
 }
 
 function renderFaucet() {
@@ -1753,6 +1747,7 @@ function applyImport() {
 function wire() {
   planner.wire();
   budgetControls.wire();
+  healthPanel.wire();
   $("#recover-income").addEventListener("click", async () => {
     if (state.demoMode) { toast("Recovery needs an onchain Transfer event. Sample runs are simulated."); return; }
     if (!state.signer || state.busy) return;
@@ -1914,6 +1909,7 @@ function wire() {
 
   setInterval(() => {
     if (state.account && state.demoToken) renderFaucet();
+    if(!state.busy&&document.visibilityState!=='hidden')loadReactiveStatus();
   }, 30_000);
 }
 

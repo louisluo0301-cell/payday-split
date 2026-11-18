@@ -1,0 +1,40 @@
+{
+  "status": "completed",
+  "complete": true,
+  "scope": "observer",
+  "alerts": [
+    {
+      "id": "observer-completed",
+      "severity": "info",
+      "title": "Observation completed and subscription stopped",
+      "action": "The one-observation task is complete. No further event processing is expected."
+    }
+  ],
+  "snapshot": {
+    "mode": "observer",
+    "account": null,
+    "token": "0x5a6EaDc43049CC309eC1D4881090E2dbACfB2EDe",
+    "reactiveAddress": "0xd1ad836170fBe9d5291D26BC372c4D81108d7378",
+    "expectedOwner": "0x90D2A64b86cB547d729ce61101FcD835d512e55a",
+    "checkedAt": "2026-11-18T09:31:03.958Z",
+    "timestamp": 1794994263,
+    "errors": [],
+    "chainErrors": [],
+    "codes": {
+      "token": true,
+      "reactive": true,
+      "system": true
+    },
+    "configured": true,
+    "reactiveChain": "5318007",
+    "destinationChain": "11155111",
+    "remaining": "0",
+    "reactiveBalance": "71330600000000000",
+    "reactiveDebt": "0",
+    "subscribed": false,
+    "observerOwner": "0x90D2A64b86cB547d729ce61101FcD835d512e55a",
+    "reactiveReserves": "0",
+    "observerToken": "0x5a6EaDc43049CC309eC1D4881090E2dbACfB2EDe",
+    "count": "1"
+  }
+}

@@ -1,6 +1,6 @@
-param([string]$Version = 'v7', [string]$OutputDirectory = '')
+param([string]$Version = 'v8', [string]$OutputDirectory = '')
 $ErrorActionPreference = 'Stop'
-if ($Version -notmatch '^v[0-9]+$') { throw 'Version must look like v7.' }
+if ($Version -notmatch '^v[0-9]+$') { throw 'Version must look like v8.' }
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $releaseRoot = Join-Path (Split-Path -Parent $projectRoot) 'release'
 if ($OutputDirectory) { $releaseRoot = [IO.Path]::GetFullPath($OutputDirectory) }
@@ -9,13 +9,13 @@ if (Test-Path -LiteralPath $packageRoot) { throw 'Package already exists; choose
 $sourceRoot = Join-Path $packageRoot 'payday-split'
 New-Item -ItemType Directory -Path $sourceRoot -Force | Out-Null
 $rootFiles = @('README.md','LICENSE','foundry.toml','remappings.txt','Makefile','.env.example','.gitignore','.gitattributes','交付入口.md')
-$allowedDirs = @('src','test','script','docs','deployments','submission','lib','.github','web/src','web/public','web/script','web/test')
+$allowedDirs = @('src','test','script','docs','notes','deployments','submission','lib','.github','web/src','web/public','web/script','web/test')
 $files = @()
 foreach ($dir in $allowedDirs) {
     $path = Join-Path $projectRoot $dir
     if (Test-Path -LiteralPath $path) { $files += Get-ChildItem -LiteralPath $path -Recurse -File -Force }
 }
-foreach ($name in $rootFiles + @('web/package.json','web/package-lock.json','web/index.html','web/vite.config.js')) {
+foreach ($name in $rootFiles + @('web/package.json','web/package-lock.json','web/index.html','web/camp-task.html','web/vite.config.js')) {
     $path = Join-Path $projectRoot $name
     if (Test-Path -LiteralPath $path) { $files += Get-Item -LiteralPath $path -Force }
 }

@@ -19,14 +19,17 @@ test('demo dashboard boots, saves controls, respects pause and manages allowance
     assert.match($('#network-label').textContent,/Demo/);
     assert.equal($('#buckets-list').children.length,3);
     assert.ok($('.activity-group'), 'initial sample run renders');
+    assert.match($('#health-summary').textContent,/Demo checks/);
     $('#policy-paused').checked = true;
     $('#save-policy').click();
     assert.match($('#policy-status').textContent,/Demo controls saved/);
+    assert.match($('#health-items').textContent,/Sample spending plan is paused/);
     $('#faucet-btn').click();
     assert.match($('.activity-group').textContent,/1,000|1000/);
     $('#policy-paused').checked = false;
     $('#policy-maxPerRun').value = '400';
     $('#save-policy').click();
+    assert.doesNotMatch($('#health-items').textContent,/Sample spending plan is paused/);
     $('#faucet-btn').click();
     assert.match($('.activity-group').textContent,/\+300\.00/);
     assert.match($('.activity-group').textContent,/\+100\.00/);
@@ -36,6 +39,7 @@ test('demo dashboard boots, saves controls, respects pause and manages allowance
     assert.match($('#allowance-pill').textContent,/123.45/);
     $('#revoke-allowance').click();
     assert.match($('#allowance-pill').textContent,/Allowance —/);
+    assert.match($('#health-items').textContent,/Sample allowance is zero/);
     // Targets count payouts from activation, then prevent repeated bill payments.
     $('#approval-amount').value='10000'; $('#approve-btn').click();
     $('#policy-maxPerRun').value='0'; $('#save-policy').click();

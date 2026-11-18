@@ -306,6 +306,16 @@
             </details>
           </article>
 
+          <article class="card card-health" aria-labelledby="health-title">
+            <div class="card-head"><h3 id="health-title">Automation health</h3><button class="link-btn" id="health-refresh" type="button">Check now</button></div>
+            <p id="health-summary" class="health-summary" role="status">Not checked</p>
+            <p id="health-scope" class="fineprint">Checks cover fees, subscriptions and saved spending controls.</p>
+            <div id="health-metrics" class="health-metrics"></div>
+            <ul id="health-items" class="health-items"></ul>
+            <div class="health-footer"><small id="health-checked">Not checked</small><button class="link-btn" id="health-export" type="button" disabled>Download health report</button></div>
+            <details><summary>Recent status changes</summary><ol id="health-history" class="health-history"></ol></details>
+          </article>
+
           <article class="card card-activity">
             <div class="card-head">
               <h3>Waterfall runs</h3>

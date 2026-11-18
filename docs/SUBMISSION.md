@@ -61,12 +61,13 @@
 > - `previewWaterfall` for basic math; `previewExecution` includes current goals, policy, balance and allowance (assumes successful standard-token transfers).
 > - One contract set also runs team payroll: a treasury sets fixed salary buckets + a bonus percentage, and pays everyone on the next funding event.
 > - Visual waterfall editor with labels, reorder controls, CSV import, activity CSV export, per-run receipt PNG, and a no-wallet `?demo=1` mode.
+> - Shared read-only web/CLI health checks for chain identity, fee balance/reserves/debt, callback slots, rule state and user limits; deduplicated in-page alerts, recovery history and JSON reports.
 >
 > **Tech stack.** Solidity 0.8.29, Foundry, `reactive-lib-omni v0.1.0`, OpenZeppelin 5.1, Vite + ethers v6.
 >
-> **Built during the buildathon.** Contracts, 87 tests, deployment/verification scripts, UI, local Anvil harness, and docs were written for this event. The public Reactive starter/library is used as a dependency.
+> **Built during the buildathon.** Contracts, deployment/verification scripts, UI, local Anvil harness, and docs were written for this event. The public Reactive starter/library is used as a dependency.
 >
-> **Evidence.** 87/87 Foundry and 17/18 frontend tests; local Anvil full-loop demo; one-command testnet deploy + `verify.ps1`. Repo: `https://github.com/louisluo0301-cell/payday-split`.
+> **Evidence.** 98/98 Foundry tests (87 core, 11 observer/token), 33/33 frontend tests and production build; local Anvil full-loop demo; one-command testnet deploy + `verify.ps1`. A separate camp observer has verified Sepolia/Lasna evidence in `notes/2026-11-18-first-transfer-monitor.md`; the product's real destination callback and payout remain pending. Repo: `https://github.com/louisluo0301-cell/payday-split`.
 
 **GitHub / GitLab / Bitbucket**
 
@@ -110,7 +111,7 @@
 
 ## Judge quick path
 
-1. `forge test` → 87/87.
+1. `forge test` → 98/98 (87 core + 11 observer/token); run frontend tests in `web` → 33/33.
 2. Open the three transactions above.
 3. Lasna: `getRule(user, token)` → 3 payees, version, `subscribed=true`.
 4. Destination: `bucketCount(user, token)` → 3; `ruleVersion` → 1; `getBuckets` → rent/tax/savings.
