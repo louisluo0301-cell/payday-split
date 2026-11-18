@@ -14,6 +14,7 @@
 - **项目实践**：[v7 功能与验收记录](docs/UPGRADE-v7.md)、[测试复现方法](docs/TESTING.md)、[本地完整流程证据](deployments/31337.evidence.json)。
 - **相似项目研究与勘误**：[GitHub 参考项目](docs/REFERENCE-RESEARCH-v7.md)、[最新代码复核记录](docs/CODE-REVIEW-v8.md)。
 - **v8 自动化健康检查**：[功能与验收](docs/UPGRADE-v8.md)：费用余额/预付储备/欠费、回调次数、规则镜像、用户限额、异常提示和恢复记录。
+- **健康面板视觉验收**：[桌面与手机截图](docs/visual-qa/README.md)，覆盖检查状态、费用告警、中断和恢复。
 - **当前进度**：独立监听作业已在真实测试网验证；PaydaySplit 核心的真实回调分账部署与外部审计待完成。
 
 ![PaydaySplit demo](docs/demo-preview.gif)

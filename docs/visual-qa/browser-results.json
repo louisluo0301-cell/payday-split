@@ -1,0 +1,62 @@
+{
+  "browser": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/157.0.0.0 Safari/537.36 Edg/157.0.0.0",
+  "tests": [
+    {
+      "case": "health-desktop-demo",
+      "viewport": 1440,
+      "summary": "Demo checks",
+      "overflow": false
+    },
+    {
+      "case": "health-mobile-demo",
+      "viewport": 390,
+      "summary": "Demo checks",
+      "overflow": false
+    },
+    {
+      "case": "health-mobile-paused",
+      "viewport": 390,
+      "summary": "Demo checks",
+      "overflow": false
+    },
+    {
+      "case": "health-mobile-recovered",
+      "viewport": 390,
+      "summary": "Demo checks",
+      "overflow": false
+    },
+    {
+      "case": "health-small-mobile",
+      "viewport": 320,
+      "summary": "Demo checks",
+      "overflow": false
+    },
+    {
+      "case": "health-desktop-blocked",
+      "viewport": 1440,
+      "summary": "Action needed",
+      "overflow": false
+    },
+    {
+      "case": "health-desktop-outage",
+      "viewport": 1440,
+      "summary": "Live status unavailable",
+      "overflow": false
+    },
+    {
+      "case": "health-desktop-recovered",
+      "viewport": 1440,
+      "summary": "Platform checks passed",
+      "overflow": false
+    },
+    {
+      "case": "health-desktop-unconfigured",
+      "viewport": 1440,
+      "summary": "Live deployment not configured",
+      "overflow": false
+    }
+  ],
+  "fixture": "Local mocked RPC",
+  "reportDownload": true,
+  "uncaughtErrors": 0
+}
