@@ -725,7 +725,7 @@ async function loadReactiveStatus() {
     healthPanel.apply(report,{notify:report.status!=='unconfigured'});
     const s=report.snapshot;
     setText('remaining-label',s.remaining===undefined?(report.status==='unconfigured'?'not deployed':'status unknown'):s.reactivePaused?'paused':`${s.remaining} callback slots`);
-    if(account&&s.mirroredVersion!==undefined)setText('reactive-note',`Saved rule v${s.ruleVersion??'unknown'} · mirrored v${s.mirroredVersion} · user callback slots ${s.userBudget??'unknown'}. See health checks for fee funding and exceptions.`);
+    if(account&&s.mirroredVersion!==undefined)setText('reactive-note',`Saved rule v${s.ruleVersion??'unknown'} · mirrored v${s.mirroredVersion} · user callback slots ${s.userBudget??'unknown'}.`);
     else setText('reactive-note',report.status==='unconfigured'?'Configure a verified deployment to enable live checks.':'Health checks cover platform funding. Connect a wallet to inspect your saved plan.');
   } catch {
     if(request!==healthReadId||account!==state.account)return;

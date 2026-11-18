@@ -243,6 +243,7 @@
                 <div class="step-body">
                   <b>Watch the waterfall run</b>
                   <span id="reactive-note">Reactive mirrors your buckets and requests one callback.</span>
+                  <a class="health-jump" href="#automation-health">View health checks</a>
                   <button class="btn btn-small btn-ghost run-now" id="run-now" type="button">New manual payment</button>
                 </div>
                 <div class="live-indicator" id="reactive-live"><span class="dot"></span><span id="remaining-label">—</span></div>
@@ -306,14 +307,25 @@
             </details>
           </article>
 
-          <article class="card card-health" aria-labelledby="health-title">
-            <div class="card-head"><h3 id="health-title">Automation health</h3><button class="link-btn" id="health-refresh" type="button">Check now</button></div>
-            <p id="health-summary" class="health-summary" role="status">Not checked</p>
-            <p id="health-scope" class="fineprint">Checks cover fees, subscriptions and saved spending controls.</p>
-            <div id="health-metrics" class="health-metrics"></div>
-            <ul id="health-items" class="health-items"></ul>
-            <div class="health-footer"><small id="health-checked">Not checked</small><button class="link-btn" id="health-export" type="button" disabled>Download health report</button></div>
-            <details><summary>Recent status changes</summary><ol id="health-history" class="health-history"></ol></details>
+          <article id="automation-health" class="card card-health" aria-labelledby="health-title">
+            <div class="card-head">
+              <h3 id="health-title">Automation health</h3>
+              <button class="btn btn-small btn-outline" id="health-refresh" type="button">Check now</button>
+            </div>
+            <div class="health-overview">
+              <p id="health-summary" class="health-summary" role="status">Not checked</p>
+              <p id="health-scope">Checks cover fees, subscriptions and saved spending controls.</p>
+            </div>
+            <dl id="health-metrics" class="health-metrics"></dl>
+            <ul id="health-items" class="health-items" aria-label="Automation findings"></ul>
+            <details class="health-history-details">
+              <summary>Recent status changes</summary>
+              <ol id="health-history" class="health-history"></ol>
+            </details>
+            <div class="health-footer">
+              <time id="health-checked" hidden></time>
+              <button class="btn btn-small btn-ghost" id="health-export" type="button" disabled>Download JSON report</button>
+            </div>
           </article>
 
           <article class="card card-activity">

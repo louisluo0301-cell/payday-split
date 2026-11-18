@@ -46,4 +46,4 @@ npm run health -- --local
 
 Coverage runs have produced source-mapping warnings; coverage percentages are not reliable release evidence. Foundry lint warnings require contextual review, including timestamps, bounded casts and external calls. Passing tests are not an audit.
 
-The independent observer has real Sepolia/Lasna evidence. PaydaySplit's actual destination callback delivery and payouts, long-duration operation and independent audit remain outstanding. New health UI has DOM regression coverage and a production build; browser visual QA remains outstanding. Existing product screenshots/video are historical; the camp completion screenshot is current. GitHub Actions complements local checks.
+The independent observer has real Sepolia/Lasna evidence. PaydaySplit's actual destination callback delivery and payouts, long-duration operation and independent audit remain outstanding. The health panel has DOM regression coverage and [browser visual acceptance](visual-qa/README.md) at desktop and phone widths. Earlier product screenshots and video show the prior UI. GitHub Actions complements local checks.
