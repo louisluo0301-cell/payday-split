@@ -1,38 +1,44 @@
-param([string]$Version = 'v8', [string]$OutputDirectory = '')
+param([string]$Version = 'v9', [string]$OutputDirectory = '')
 $ErrorActionPreference = 'Stop'
-if ($Version -notmatch '^v[0-9]+$') { throw 'Version must look like v8.' }
+if ($Version -notmatch '^v[0-9]+$') { throw 'Version must look like v9.' }
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $releaseRoot = Join-Path (Split-Path -Parent $projectRoot) 'release'
 if ($OutputDirectory) { $releaseRoot = [IO.Path]::GetFullPath($OutputDirectory) }
 $packageRoot = Join-Path $releaseRoot "PaydaySplit-$Version-交付包"
-if (Test-Path -LiteralPath $packageRoot) { throw 'Package already exists; choose a new release destination.' }
+$zipPath = Join-Path $releaseRoot "PaydaySplit-$Version-交付包.zip"
+if ((Test-Path -LiteralPath $packageRoot) -or (Test-Path -LiteralPath $zipPath)) {
+    throw 'Package already exists; choose a new release destination.'
+}
+$revision = & git -C $projectRoot rev-parse --verify HEAD
+if ($LASTEXITCODE -ne 0 -or $revision -notmatch '^[a-f0-9]{40}$') { throw 'Package from a committed Git checkout.' }
+$tracked = & git -C $projectRoot ls-tree -r --name-only $revision
+if ($LASTEXITCODE -ne 0) { throw 'Cannot read the delivery revision.' }
+foreach ($path in $tracked) {
+    if ($path -match '(^|/)(node_modules|out|cache|broadcast|\.git|\.npm-cache)(/|$)' -or
+        $path -match '(^|/)\.env(?!\.example$)[^/]*(/|$)' -or $path -match '\.(pem|pfx|key)$') {
+        throw "Review this committed path before packaging: $path"
+    }
+}
 $sourceRoot = Join-Path $packageRoot 'payday-split'
-New-Item -ItemType Directory -Path $sourceRoot -Force | Out-Null
-$rootFiles = @('README.md','LICENSE','foundry.toml','remappings.txt','Makefile','.env.example','.gitignore','.gitattributes','交付入口.md')
-$allowedDirs = @('src','test','script','docs','notes','deployments','submission','lib','.github','web/src','web/public','web/script','web/test')
-$files = @()
-foreach ($dir in $allowedDirs) {
-    $path = Join-Path $projectRoot $dir
-    if (Test-Path -LiteralPath $path) { $files += Get-ChildItem -LiteralPath $path -Recurse -File -Force }
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$archive = [IO.Path]::GetTempFileName()
+try {
+    & git -C $projectRoot archive --format=zip --prefix=payday-split/ "--output=$archive" $revision
+    if ($LASTEXITCODE -ne 0) { throw 'Could not archive the committed revision.' }
+    New-Item -ItemType Directory -Path $packageRoot -Force | Out-Null
+    [IO.Compression.ZipFile]::ExtractToDirectory($archive,$packageRoot)
+} finally {
+    Remove-Item -LiteralPath $archive
 }
-foreach ($name in $rootFiles + @('web/package.json','web/package-lock.json','web/index.html','web/camp-task.html','web/vite.config.js')) {
-    $path = Join-Path $projectRoot $name
-    if (Test-Path -LiteralPath $path) { $files += Get-Item -LiteralPath $path -Force }
-}
-$manifest = @()
-foreach ($file in $files | Sort-Object FullName -Unique) {
-    $relativePath = [IO.Path]::GetRelativePath($projectRoot,$file.FullName)
-    if ($relativePath -match '(^|[\\/])(node_modules|out|cache|broadcast|\.git|\.npm-cache)([\\/]|$)') { continue }
-    if ($file.Name -like '.env*' -and $file.Name -ne '.env.example') { continue }
-    $destination = Join-Path $sourceRoot $relativePath
-    New-Item -ItemType Directory -Path (Split-Path -Parent $destination) -Force | Out-Null
-    Copy-Item -LiteralPath $file.FullName -Destination $destination
-    $manifest += [ordered]@{path=$relativePath.Replace('\','/');sha256=(Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash}
+$manifest = foreach ($file in Get-ChildItem -LiteralPath $sourceRoot -Recurse -File -Force | Sort-Object FullName) {
+    $relativePath = [IO.Path]::GetRelativePath($sourceRoot,$file.FullName).Replace('\','/')
+    [ordered]@{path=$relativePath;sha256=(Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash}
 }
 $manifest | ConvertTo-Json -Depth 4 | Set-Content (Join-Path $packageRoot 'SHA256-MANIFEST.json') -Encoding utf8
-Copy-Item -LiteralPath (Join-Path $projectRoot '交付入口.md') -Destination (Join-Path $packageRoot '先读我.md')
-Add-Type -AssemblyName System.IO.Compression.FileSystem
-$zipPath = Join-Path $releaseRoot "PaydaySplit-$Version-交付包.zip"
+$revision | Set-Content (Join-Path $packageRoot 'REVISION.txt') -Encoding utf8
+$entry = Get-Content -LiteralPath (Join-Path $sourceRoot '交付入口.md') -Raw
+($entry -replace '\]\((docs|notes)/', '](payday-split/$1/') |
+    Set-Content -LiteralPath (Join-Path $packageRoot '先读我.md') -Encoding utf8 -NoNewline
 [IO.Compression.ZipFile]::CreateFromDirectory($packageRoot,$zipPath)
 Get-Item -LiteralPath $zipPath | Select-Object FullName,Length
-Write-Host "Packaged $($manifest.Count) files."
+Write-Host "Packaged $($manifest.Count) source files from $revision."

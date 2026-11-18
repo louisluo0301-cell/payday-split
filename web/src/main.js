@@ -17,6 +17,10 @@ import { createIncomeTrace } from "./income-trace.js";
 import { groupWaterfallEvents, incomeTransfers, matchedPayout } from "./income-evidence.js";
 import { createIncomeModules } from "./income-modules.js";
 import { wireCctpCollection } from "./cctp-collection.js";
+import { selectDeploymentAsset } from "./deployment-assets.js";
+import { switchWalletChain, verifyWalletContext } from "./wallet-context.js";
+import { readIncomeRetries } from "./retry-evidence.js";
+import { exportLedger, importRecipients } from "./ledger-csv.js";
 
 let demoPolicy = {};
 let demoSpent = 0n;
@@ -49,8 +53,10 @@ async function savePolicy() {
     }
     if (!state.signer) { toast("Connect your wallet to save controls.", true); return; }
     state.busy = true;
-    const tx = await state.split.connect(state.signer).setPolicy(deployment.token, policy);
+    const { signer, split } = state;
+    const tx = await split.connect(signer).setPolicy(deployment.token, policy);
     await tx.wait();
+    if (signer !== state.signer) return;
     policyDirty = false;
     await loadPolicy();
     await planner.preview();
@@ -61,12 +67,13 @@ async function savePolicy() {
 }
 
 async function loadPolicy() {
-  const account=state.account;
+  const {account, signer, split}=state;
+  if (!signer || !split) return;
   try {
     const [policy, [day, amount]] = await Promise.all([
-      state.split.policies(account, deployment.token), state.split.dailySpend(account, deployment.token)
+      split.policies(account, deployment.token), split.dailySpend(account, deployment.token)
     ]);
-    if(account!==state.account) return;
+    if(signer!==state.signer) return;
     // Avoid overwriting fields while the user is editing.
     if (!policyDirty && !document.activeElement?.id?.startsWith("policy-")) {
       for (const key of ["reserve", "maxPerRun", "dailyLimit", "minIncome"]) {
@@ -79,7 +86,7 @@ async function loadPolicy() {
     const spent = Number(day) === Math.floor(Date.now() / 86400000) ? amount : 0n;
     document.querySelector("#policy-status").textContent = `Onchain controls loaded · spent today: ${formatUnits(spent, state.decimals)} ${state.symbol}${policy.paused ? " · PAUSED" : ""}`;
   } catch {
-    if(account===state.account) document.querySelector("#policy-status").textContent = "Controls could not be read. Check the RPC connection and that the deployed contract supports v7.";
+    if(signer===state.signer) document.querySelector("#policy-status").textContent = "Controls could not be read. Check the configured contract and RPC.";
   }
 }
 
@@ -171,8 +178,13 @@ try {
   // Static file is optional; the page still renders in "not deployed" mode.
 }
 
+const assetProfile = selectDeploymentAsset(deployment, demoMode ? null : params.get("asset"));
+deployment = assetProfile.deployment;
 const configured = Boolean(deployment.token && deployment.split);
 const chainId = Number(deployment.chainId || 11155111);
+const wrappedAsset = !demoMode && !!deployment.token
+  && deployment.token.toLowerCase() === deployment.modules.wrappedNative?.toLowerCase();
+const defaultSample = wrappedAsset ? "0.1" : "1000";
 const explorer = deployment.explorer || "";
 const lasnaExplorer = deployment.lasnaExplorer || "https://lasna.reactscan.net";
 
@@ -202,6 +214,7 @@ PRESETS.emergency = [
   {label:'Emergency reserve',payee:'0x000000000000000000000000000000000000dEaD',fixed:'0',bps:'80',active:true},
   {label:'Savings',payee:'0x000000000000000000000000000000000000cafE',fixed:'0',bps:'20',active:true},
 ];
+const SAMPLE_PAYEES = new Set(Object.values(PRESETS).flat().map(bucket => bucket.payee.toLowerCase()));
 const LABELS = {
   "0x000000000000000000000000000000000000dead": "Rent vault",
   "0x000000000000000000000000000000000000beef": "Tax reserve",
@@ -210,12 +223,13 @@ const LABELS = {
 
 const COLORS = ["#1d6a4a", "#e8bb62", "#8bbf9f", "#b4472f", "#5b7fa8", "#9c7bb5", "#c98b5e", "#6b8e6b"];
 
-const labelKey = `paydaysplit:labels:${chainId}:${deployment.token || "none"}`;
-let storedLabels = {};
-try {
-  storedLabels = JSON.parse(localStorage.getItem(labelKey) || "{}") || {};
-} catch {
-  storedLabels = {};
+function labelsKey(account) {
+  const scope = demoMode ? "demo" : account?.toLowerCase() || "draft";
+  return `paydaysplit:labels:v2:${chainId}:${deployment.token || "none"}:${scope}`;
+}
+function loadLabels(account) {
+  try { return JSON.parse(localStorage.getItem(labelsKey(account)) || "{}") || {}; }
+  catch { return {}; }
 }
 
 const state = {
@@ -224,8 +238,8 @@ const state = {
   account: null,
   token: null,
   split: null,
-  symbol: "dUSDC",
-  decimals: 6,
+  symbol: wrappedAsset ? "WETH" : "dUSDC",
+  decimals: wrappedAsset ? 18 : 6,
   balance: 0n,
   allowance: 0n,
   buckets: [],
@@ -240,12 +254,12 @@ const state = {
   busy: false,
   dirty: false,
   pollingSplit: false,
-  samplePaycheck: 1000,
+  samplePaycheck: defaultSample,
   allocationMode: 0,
   draftAllocationMode: 0,
   cycleConfig: {anchor:0,duration:0,revision:0},
   demoNonce: 0,
-  labels: storedLabels,
+  labels: loadLabels(null),
   mode: "personal",
   demoMode,
 };
@@ -269,7 +283,8 @@ const planner = createPlanning({
 const budgetControls = createBudgetControls({state,deployment,$,toast,planner,refresh:refreshAll,update:updateSummary});
 const healthPanel = createHealthPanel({$,toast,refresh:loadReactiveStatus});
 const incomeTrace = createIncomeTrace({
-  $, toast, context: incomeTraceContext, readReactive: readIncomeReaction, readActivity: loadActivity, recover: recoverIncome,
+  $, toast, context: incomeTraceContext, readReactive: readIncomeReaction, readActivity: loadActivity,
+  readRetries: readIncomeRetries, recover: recoverIncome,
 });
 const incomeModules = createIncomeModules({
   $, toast,
@@ -279,6 +294,8 @@ const incomeModules = createIncomeModules({
 });
 let healthReadId = 0;
 let activityReadId = 0;
+let connectReadId = 0;
+let connecting = false;
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                             */
@@ -300,7 +317,7 @@ function labelFor(addr) {
 
 function saveLabels() {
   try {
-    localStorage.setItem(labelKey, JSON.stringify(state.labels));
+    localStorage.setItem(labelsKey(state.account), JSON.stringify(state.labels));
   } catch {
     // localStorage can be unavailable in private windows; labels are a UI nicety.
   }
@@ -388,10 +405,6 @@ function txUrl(hash) {
   return hash && explorer ? `${explorer}/tx/${hash}` : "";
 }
 
-function toHex(value) {
-  return `0x${value.toString(16)}`;
-}
-
 function timeAgo(timestamp) {
   const seconds = Math.max(0, Math.floor(Date.now() / 1000) - Number(timestamp));
   if (seconds < 60) return `${seconds}s ago`;
@@ -403,7 +416,12 @@ function timeAgo(timestamp) {
 }
 
 function clonePreset(name) {
-  return PRESETS[name].map((bucket) => ({ ...bucket }));
+  const buckets = PRESETS[name].map(bucket => ({ ...bucket }));
+  if (wrappedAsset && (name === "freelancer" || name === "team")) {
+    const weights = name === "team" ? ["30", "30", "20", "10"] : ["30", "25", "15"];
+    return buckets.map((bucket, index) => ({ ...bucket, fixed: "", bps: weights[index] }));
+  }
+  return buckets;
 }
 
 /* ------------------------------------------------------------------ */
@@ -480,26 +498,6 @@ const CHAIN_PARAMS = {
   },
 };
 
-async function ensureChain() {
-  const network = await state.provider.getNetwork();
-  if (Number(network.chainId) === chainId) return;
-
-  try {
-    await window.ethereum.request({
-      method: "wallet_switchEthereumChain",
-      params: [{ chainId: toHex(chainId) }],
-    });
-  } catch (err) {
-    if (err.code === 4902 || err.code === -32603) {
-      const params = CHAIN_PARAMS[chainId];
-      if (!params) throw new Error(`Add chain ${chainId} to your wallet first.`);
-      await window.ethereum.request({ method: "wallet_addEthereumChain", params: [params] });
-    } else {
-      throw err;
-    }
-  }
-}
-
 async function connect() {
   if (state.demoMode) {
     document.querySelector("#dashboard")?.scrollIntoView({ behavior: "smooth" });
@@ -507,53 +505,72 @@ async function connect() {
     return;
   }
   if (!configured) {
-    toast("Contracts are not deployed yet. Run script/deploy.ps1 first.", true);
+    toast(assetProfile.invalid ? "Select a supported asset before connecting." : "Contracts are not deployed yet. Use demo mode or configure a deployment.", true);
     return;
   }
   if (!window.ethereum) {
     toast("No EVM wallet found. Install MetaMask, Rabby, or another browser wallet.", true);
     return;
   }
+  if (connecting || state.busy) return;
+  if (state.account) { $("#dashboard").scrollIntoView({ block: "start" }); return; }
 
+  const request = ++connectReadId;
+  const injected = window.ethereum;
+  connecting = true;
+  setText("connect-top", "Connecting…");
+  let provider;
   try {
-    state.provider = new BrowserProvider(window.ethereum);
-    await state.provider.send("eth_requestAccounts", []);
-    await ensureChain();
-    state.signer = await state.provider.getSigner();
-    state.account = await state.signer.getAddress();
+    await injected.request({ method: "eth_requestAccounts" });
+    await switchWalletChain(injected, chainId, CHAIN_PARAMS[chainId]);
+    const account = await verifyWalletContext(injected, chainId);
+    provider = new BrowserProvider(injected, chainId);
+    const signer = await provider.getSigner(account);
+    const token = new Contract(deployment.token, TOKEN_ABI, provider);
+    const split = new Contract(deployment.split, SPLIT_ABI, provider);
+    const [symbol, decimals, splitCode] = await Promise.all([
+      token.symbol().catch(() => assetProfile.selected?.label || "token"),
+      token.decimals().catch(() => null),
+      provider.getCode(deployment.split),
+    ]);
+    if (decimals === null || Number(decimals) < 0 || Number(decimals) > 36 || splitCode === "0x") {
+      throw new Error("Could not verify token precision or the split contract. Wallet actions remain disabled.");
+    }
+    await verifyWalletContext(injected, chainId, account);
+    if (request !== connectReadId) return;
     policyDirty = false;
-    state.token = new Contract(deployment.token, TOKEN_ABI, state.provider);
-    state.split = new Contract(deployment.split, SPLIT_ABI, state.provider);
+    Object.assign(state, { provider, signer, account, token, split, symbol, decimals: Number(decimals), labels: loadLabels(account) });
 
     $("#wallet-chip").classList.add("connected");
-    setText("wallet-label", short(state.account));
+    setText("wallet-label", short(account));
     $("#disconnect").hidden = false;
-    setText("connect-top", short(state.account));
+    setText("connect-top", short(account));
 
-    const [symbol, decimals] = await Promise.all([
-      state.token.symbol().catch(() => "tokens"),
-      state.token.decimals().catch(() => 18),
-    ]);
-    state.symbol = symbol;
-    state.decimals = Number(decimals);
-
-    toast("Wallet connected. Reactive is watching this address.");
-    await loadRule();
+    toast("Wallet connected. See Automation health for subscription status.");
     await refreshAll();
-    incomeModules.refresh();
+    if (request === connectReadId) incomeModules.refresh();
   } catch (err) {
-    toast(humanError(err), true);
+    if (request === connectReadId) toast(humanError(err), true);
+  } finally {
+    if (provider && provider !== state.provider) provider.destroy();
+    if (request === connectReadId) {
+      connecting = false;
+      if (!state.account) setText("connect-top", "Connect wallet");
+    }
   }
 }
 
 function disconnect() {
+  ++connectReadId;
   ++healthReadId;
   ++activityReadId;
+  connecting = false;
   healthPanel.reset();
   incomeTrace.reset();
   incomeModules.reset();
   planner.clear();
   policyDirty = false;
+  const previousProvider = state.provider;
   state.provider = null;
   state.signer = null;
   state.account = null;
@@ -561,6 +578,10 @@ function disconnect() {
   state.split = null;
   state.balance = 0n;
   state.allowance = 0n;
+  state.labels = loadLabels(null);
+  state.demoToken = false;
+  state.faucetAmount = 0n;
+  state.nextFaucetAt = 0;
   state.buckets = clonePreset("freelancer");
   state.ruleVersion = 0;
   state.allocationMode = 0;
@@ -572,6 +593,9 @@ function disconnect() {
   state.skips = [];
   state.activityError = false;
   state.dirty = false;
+  for (const id of ["reserve", "maxPerRun", "dailyLimit", "minIncome", "expiry"]) $("#policy-" + id).value = "";
+  $("#policy-paused").checked = false;
+  setText("policy-status", "Connect to read onchain controls.");
 
   $("#wallet-chip").classList.remove("connected");
   setText("wallet-label", "Not connected");
@@ -579,6 +603,7 @@ function disconnect() {
   $("#disconnect").hidden = true;
   renderDisconnected();
   loadReactiveStatus();
+  previousProvider?.destroy();
 }
 
 /* ------------------------------------------------------------------ */
@@ -588,16 +613,16 @@ function disconnect() {
 async function loadRule() {
   if (!state.split || !state.account) return;
 
+  const { account, signer, split } = state;
   try {
-    const account = state.account;
     const [raw, version, ids, mode, cycle] = await Promise.all([
-      state.split.getBuckets(state.account, deployment.token),
-      state.split.ruleVersion(state.account, deployment.token),
-      state.split.getBucketIds(state.account, deployment.token),
-      state.split.allocationModes(state.account, deployment.token),
-      state.split.cycleConfigs(state.account, deployment.token),
+      split.getBuckets(account, deployment.token),
+      split.ruleVersion(account, deployment.token),
+      split.getBucketIds(account, deployment.token),
+      split.allocationModes(account, deployment.token),
+      split.cycleConfigs(account, deployment.token),
     ]);
-    if(account !== state.account) return;
+    if(signer !== state.signer || state.dirty) return;
     state.ruleVersion = Number(version);
     state.allocationMode = Number(mode);
     state.cycleConfig = {anchor:Number(cycle.anchor),duration:Number(cycle.duration),revision:Number(cycle.revision)};
@@ -620,7 +645,7 @@ async function loadRule() {
     renderBuckets();
     updateSummary();
   } catch (err) {
-    toast(humanError(err), true);
+    if (signer === state.signer) toast(humanError(err), true);
   }
 }
 
@@ -631,13 +656,13 @@ async function refreshAll() {
     return;
   }
 
-  const account = state.account;
+  const { account, signer } = state;
   try {
     const [balance, allowance] = await Promise.all([
       state.token.balanceOf(state.account),
       state.token.allowance(state.account, deployment.split),
     ]);
-    if(account !== state.account) return;
+    if(signer !== state.signer) return;
     state.balance = balance;
     state.allowance = allowance;
     state.demoToken = state.symbol === "dUSDC";
@@ -645,25 +670,26 @@ async function refreshAll() {
     if (state.demoToken) {
       try {
         const [last, amount] = await Promise.all([
-          state.token.lastFaucetAt(state.account),
+          state.token.lastFaucetAt(account),
           state.token.FAUCET_AMOUNT(),
         ]);
+        if (signer !== state.signer) return;
         state.nextFaucetAt = Number(last) + 3600;
         state.faucetAmount = amount;
       } catch {
-        state.nextFaucetAt = 0;
+        if (signer === state.signer) state.nextFaucetAt = 0;
       }
     }
 
+    if (signer !== state.signer) return;
     if (!state.dirty) await loadRule();
+    if (signer !== state.signer) return;
     renderConnected();
-    await loadPolicy();
-    await planner.load();
-    await planner.preview();
-    await loadActivity();
     loadReactiveStatus();
+    await Promise.all([loadActivity(), loadPolicy(), planner.load()]);
+    if (signer === state.signer) await planner.preview();
   } catch (err) {
-    toast(humanError(err), true);
+    if (signer === state.signer) toast(humanError(err), true);
   }
 }
 
@@ -878,7 +904,7 @@ function updateSummary() {
   const active = state.buckets.filter((bucket) => bucket.active);
   if(state.demoMode)healthPanel.apply(demoHealthReport({allowance:state.allowance,policy:demoPolicy,activeBuckets:active.length}));
   const totalBps = active.reduce((sum, bucket) => sum + Math.round((Number(bucket.bps) || 0) * 100), 0);
-  const sample = Math.max(1, Number(state.samplePaycheck) || 1000);
+  const sample = Number(state.samplePaycheck) || Number(defaultSample);
 
   setText("rule-buckets", String(active.length));
   setText("rule-version", state.ruleVersion ? `v${state.ruleVersion}` : "—");
@@ -1170,7 +1196,7 @@ function renderActivity() {
       const title = document.createElement("b");
       title.textContent = labelFor(split.payee);
 
-      const bucket = state.buckets[split.bucketIndex];
+      const bucket = !state.dirty && group.version === state.ruleVersion ? state.buckets[split.bucketIndex] : null;
       const ruleBits = [];
       if (bucket) {
         if (Number(bucket.fixed) > 0) ruleBits.push(`${fmtAmount(Number(bucket.fixed))} fixed`);
@@ -1434,6 +1460,9 @@ function bucketFromEditor(bucket) {
   if (!active && !payee) payee = ZERO;
   if (!payee) throw new Error("Every active bucket needs a payee.");
   const parsedPayee = getAddress(payee);
+  if (active && parsedPayee === ZERO) {
+    throw new Error("An active bucket needs a non-zero payee.");
+  }
   if (active && parsedPayee.toLowerCase() === state.account?.toLowerCase()) {
     throw new Error("A bucket payee cannot be your spending wallet.");
   }
@@ -1469,6 +1498,9 @@ async function saveRule(event) {
   try {
     if (!state.buckets.length) throw new Error("Add at least one destination.");
     buckets = state.buckets.map(bucketFromEditor);
+    if (chainId !== 31337 && buckets.some(bucket => bucket.active && SAMPLE_PAYEES.has(bucket.payee.toLowerCase()))) {
+      throw new Error("Replace the template’s sample addresses with your own recipients before saving.");
+    }
     const totalBps = buckets.filter((bucket) => bucket.active).reduce((sum, bucket) => sum + bucket.bps, 0);
     if (totalBps > 10_000) throw new Error("Active percentages cannot exceed 100%.");
   } catch (err) {
@@ -1480,13 +1512,15 @@ async function saveRule(event) {
   const button = $("#save-rule");
   state.busy = true;
   setBusy(button, "Saving…", true);
+  const { signer, split } = state;
   try {
     const ids = state.buckets.map(b=>/^\d+$/.test(b.id||'') ? BigInt(b.id) : 0n);
-    const tx = await state.split.connect(state.signer).setBucketsWithIds(deployment.token, buckets, ids);
+    const tx = await split.connect(signer).setBucketsWithIds(deployment.token, buckets, ids);
     clearRuleError();
     toast("Waterfall saved. Reactive is mirroring it on Lasna.", false, tx.hash);
     await tx.wait();
     await sleep(2500);
+    if (signer !== state.signer) return;
     state.dirty = false;
     await loadRule();
     await refreshAll();
@@ -1656,7 +1690,8 @@ async function runNow() {
 
   let paycheck;
   try {
-    paycheck = parseUnits(String(state.samplePaycheck), state.decimals);
+    paycheck = parseUnits($("#sample-input").value.trim(), state.decimals);
+    if (paycheck <= 0n || paycheck >= 2n ** 96n) throw new Error();
   } catch {
     toast("Enter a valid preview amount.", true);
     return;
@@ -1729,18 +1764,6 @@ async function pollForSplit(income, account) {
 /* Wiring                                                              */
 /* ------------------------------------------------------------------ */
 
-function csvAmount(value) {
-  try {
-    return formatUnits(value, state.decimals);
-  } catch {
-    return "0";
-  }
-}
-
-function csvEscape(value) {
-  const text = String(value ?? "");
-  return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
-}
 
 function exportCsv() {
   if (!state.groups.length) {
@@ -1748,25 +1771,9 @@ function exportCsv() {
     return;
   }
 
-  const rows = [["txHash", "block", "version", "payee", "label", "amount", "retained"]];
-  for (const group of state.groups) {
-    for (const split of group.splits) {
-      rows.push([
-        group.txHash,
-        group.blockNumber,
-        group.version,
-        split.payee,
-        labelFor(split.payee),
-        csvAmount(split.amount),
-        "",
-      ]);
-    }
-    if (group.retained > 0n) {
-      rows.push([group.txHash, group.blockNumber, group.version, "", "Retained", "", csvAmount(group.retained)]);
-    }
-  }
-
-  const csv = rows.map((row) => row.map(csvEscape).join(",")).join("\n");
+  const csv = exportLedger(state.groups, {
+    chainId, token: deployment.token, labelFor, decimals: state.decimals, simulated: state.demoMode,
+  });
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
@@ -1779,46 +1786,6 @@ function exportCsv() {
   toast(`Exported ${state.groups.length} run${state.groups.length === 1 ? "" : "s"} to CSV.`);
 }
 
-function parseImport(text) {
-  const buckets = [];
-  const lines = text
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line && !line.startsWith("#"));
-
-  for (const line of lines) {
-    const parts = line.split(",").map((part) => part.trim());
-    let label = "";
-    let address;
-    let amount;
-
-    if (parts.length >= 3) {
-      label = parts[0];
-      address = parts[1];
-      amount = parts[2];
-    } else if (parts.length === 2) {
-      address = parts[0];
-      amount = parts[1];
-    } else {
-      throw new Error(`Invalid line: ${line}`);
-    }
-
-    const payee = getAddress(address);
-    const fixed = Number(String(amount).replace(/[$,]/g, ""));
-    if (!Number.isFinite(fixed) || fixed <= 0) throw new Error(`Invalid amount on line: ${line}`);
-    buckets.push({
-      label,
-      payee,
-      fixed: String(fixed),
-      bps: "",
-      active: true,
-    });
-  }
-
-  if (!buckets.length) throw new Error("Paste at least one bucket.");
-  if (buckets.length > MAX_BUCKETS) throw new Error(`At most ${MAX_BUCKETS} buckets are allowed.`);
-  return buckets;
-}
 
 function openImport() {
   const dialog = $("#import-dialog");
@@ -1830,7 +1797,8 @@ function openImport() {
 
 function applyImport() {
   try {
-    const buckets = parseImport($("#import-text").value);
+    const buckets = importRecipients($("#import-text").value, state.decimals, MAX_BUCKETS);
+    buckets.forEach(bucketFromEditor);
     state.buckets = buckets;
     rememberLabels();
     state.dirty = true;
@@ -1849,7 +1817,10 @@ function wire() {
   healthPanel.wire();
   incomeTrace.wire();
   incomeModules.wire();
-  wireCctpCollection({ $, deployment, demoMode: state.demoMode });
+  wireCctpCollection({
+    $, deployment, demoMode: state.demoMode, isWalletBusy: () => state.busy || connecting,
+    setWalletBusy: value => { state.busy = value; },
+  });
   $("#save-policy").addEventListener("click", savePolicy);
   document.querySelectorAll('[id^="policy-"]').forEach(el => el.addEventListener("input", () => { policyDirty = true; }));
   $("#connect-top").addEventListener("click", connect);
@@ -1884,11 +1855,7 @@ function wire() {
     button.addEventListener("click", () => {
       state.mode = button.dataset.mode;
       state.buckets = clonePreset(state.mode === "team" ? "team" : "freelancer");
-      if (state.mode === "team") {
-        state.samplePaycheck = 5000;
-      } else {
-        state.samplePaycheck = 1000;
-      }
+      state.samplePaycheck = state.mode === "team" && !wrappedAsset ? "5000" : defaultSample;
       $("#sample-input").value = String(state.samplePaycheck);
       rememberLabels();
       state.dirty = true;
@@ -1985,11 +1952,18 @@ function wire() {
   });
 
   if (window.ethereum) {
-    window.ethereum.on?.("accountsChanged", (accounts) => {
-      if (!accounts || accounts.length === 0) disconnect();
-      else window.location.reload();
+    window.ethereum.on?.("accountsChanged", accounts => {
+      if (state.account && accounts?.[0]?.toLowerCase() !== state.account.toLowerCase()) {
+        disconnect();
+        toast("Wallet account changed. Connect again to load its plan.");
+      }
     });
-    window.ethereum.on?.("chainChanged", () => window.location.reload());
+    window.ethereum.on?.("chainChanged", chain => {
+      if (state.account && Number(chain) !== chainId) {
+        disconnect();
+        toast("Wallet network changed. Switch back and reconnect to this plan.");
+      }
+    });
   }
 
   setInterval(() => {
@@ -1998,8 +1972,40 @@ function wire() {
   }, 30_000);
 }
 
+function wireAssetPicker() {
+  if (state.demoMode || (!assetProfile.invalid && assetProfile.assets.length < 2) || !assetProfile.assets.length) return;
+  const select = $("#asset-select");
+  if (assetProfile.invalid) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "Select a supported asset";
+    option.disabled = true;
+    select.append(option);
+  }
+  for (const asset of assetProfile.assets) {
+    const option = document.createElement("option");
+    option.value = asset.id;
+    option.textContent = asset.label;
+    select.append(option);
+  }
+  select.value = assetProfile.selected?.id || "";
+  select.addEventListener("change", () => {
+    if (state.busy || connecting || ((state.dirty || policyDirty) && !window.confirm("Switch assets and discard the current unsaved draft?"))) {
+      select.value = assetProfile.selected?.id || "";
+      return;
+    }
+    const target = new URL(location.href);
+    target.searchParams.set("asset", select.value);
+    target.hash = "dashboard";
+    location.assign(target.toString());
+  });
+  $("#asset-picker").hidden = false;
+}
+
 function boot() {
   wire();
+  wireAssetPicker();
+  $("#approval-amount").value = defaultSample;
 
   setText(
     "network-label",
@@ -2028,8 +2034,12 @@ function boot() {
   const banner = $("#deployment-banner");
   if (!configured) {
     banner.hidden = false;
-    banner.innerHTML =
-      '<b>Contracts not deployed yet.</b><span>Run <code>pwsh ./script/deploy.ps1</code> and refresh. The UI reads <code>web/public/deployments.json</code>.</span>';
+    if (assetProfile.invalid) {
+      banner.textContent = "This asset is not configured. Select a supported asset to continue.";
+    } else {
+      banner.innerHTML =
+        '<b>Contracts not deployed yet.</b><span>Run <code>pwsh ./script/deploy.ps1</code> and refresh. The UI reads <code>web/public/deployments.json</code>.</span>';
+    }
   } else {
     banner.hidden = true;
   }

@@ -71,7 +71,7 @@ export function selectCollection(payload, wallet) {
   return matches[0];
 }
 
-export function wireCctpCollection({ $, deployment, demoMode }) {
+export function wireCctpCollection({ $, deployment, demoMode, isWalletBusy = () => false, setWalletBusy = () => {} }) {
   const status = $('#bridge-status');
   const hashInput = $('#bridge-hash');
   const enabled = !demoMode && Number(deployment.chainId) === destinationChain
@@ -92,18 +92,26 @@ export function wireCctpCollection({ $, deployment, demoMode }) {
   let running = false;
   async function action(work) {
     if (running) return;
+    if (isWalletBusy()) {
+      status.textContent = 'Finish the current wallet action before using the bridge.';
+      return;
+    }
     running = true;
+    setWalletBusy(true);
     actions.forEach(button => { button.disabled = true; });
+    let provider;
     try {
       if (!window.ethereum) throw new Error('Connect a browser wallet to use the testnet bridge.');
-      const provider = new BrowserProvider(window.ethereum);
+      provider = new BrowserProvider(window.ethereum);
       await provider.send('eth_requestAccounts', []);
       const signer = await provider.getSigner();
       await work(provider, signer);
     } catch (error) {
       status.textContent = error.code === 'ACTION_REJECTED' ? 'Wallet request cancelled.' : error.shortMessage || error.message;
     } finally {
+      provider?.destroy();
       running = false;
+      setWalletBusy(false);
       actions.forEach(button => { button.disabled = false; });
     }
   }
@@ -190,6 +198,7 @@ export function wireCctpCollection({ $, deployment, demoMode }) {
     }
     await assertWallet(provider, signer, destinationChain, 'Ethereum Sepolia');
     if (!await target.receiveMessage.staticCall(collection.message, collection.attestation)) throw new Error('Circle did not accept the mint preview.');
+    await assertWallet(provider, signer, destinationChain, 'Ethereum Sepolia');
     status.textContent = `Review the Sepolia mint of ${formatUnits(collection.received, 6)} USDC to this wallet.`;
     const tx = await target.receiveMessage(collection.message, collection.attestation);
     const receipt = await tx.wait();

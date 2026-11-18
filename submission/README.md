@@ -1,11 +1,11 @@
-# Submission package — PaydaySplit v8
+# Submission package — PaydaySplit v9
 
-Form draft: [docs/SUBMISSION.md](../docs/SUBMISSION.md). Current capabilities: [UPGRADE-v8.md](../docs/UPGRADE-v8.md), building on [v7](../docs/UPGRADE-v7.md). Remaining work: [REMAINING_TASKS.md](../docs/REMAINING_TASKS.md).
+Form draft: [docs/SUBMISSION.md](../docs/SUBMISSION.md). Current capabilities: [v9 income modules](../docs/income-modules/README.md) and [workspace](../docs/workspace/README.md). Remaining work: [REMAINING_TASKS.md](../docs/REMAINING_TASKS.md).
 
 | Item | Status |
 |---|---|
 | Contracts: 106 Foundry tests | Local pass |
-| Frontend: 39 tests and production build | Local pass. [Health panel](../docs/visual-qa/README.md), [income trace](../docs/income-trace/README.md) and [v9 income modules](../docs/income-modules/README.md) |
+| Frontend: 45 tests and production build | Local pass. [Health panel](../docs/visual-qa/README.md), [income trace](../docs/income-trace/README.md) and [v9 workspace](../docs/workspace/README.md) |
 | Local Anvil callback/cycle evidence | [31337.evidence.json](../deployments/31337.evidence.json), [31337.budget-v7.evidence.json](../deployments/31337.budget-v7.evidence.json) |
 | Public repository | https://github.com/louisluo0301-cell/payday-split |
 | Updated product video | Pending; bundled video is historical local footage |

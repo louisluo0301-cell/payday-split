@@ -1,0 +1,31 @@
+{
+  "network": "Isolated local Anvil",
+  "browser": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/157.0.0.0 Safari/537.36 Edg/157.0.0.0",
+  "retryPreference": "enabled via browser",
+  "aave": "local mock reserve module created and registered via browser",
+  "cooldown": {
+    "original": "100 dUSDC",
+    "released": "40 dUSDC",
+    "remaining": "60 dUSDC"
+  },
+  "ethForwarded": "1 local ETH as 1 WETH",
+  "bridge": "testnet-only controls gated on the correct deployment",
+  "retryTimeline": "Income received1000.0 dUSDC · block 34 · log 0Reactive callbackCallback requested for this exact transfer.Destination result200.0 dUSDC routed · 800.0 dUSDC retained · 1 skipped buckets.Failed bucket retriesBucket 1: 400.0 dUSDC paid. Updated allocation: 600.0 dUSDC routed, 400.0 dUSDC retained.",
+  "wethPayout": "0.2 WETH from a 1 ETH income",
+  "walletSwitch": "previous account view cleared without reload",
+  "visualChecks": [
+    {
+      "case": "desktop-retry-receipt",
+      "viewport": 1440,
+      "summary": "Verified incoming transfer for this wallet.",
+      "overflow": false
+    },
+    {
+      "case": "mobile-asset-picker",
+      "viewport": 390,
+      "summary": "Plan asset\n            Demo USDCWrapped ETH\n          ",
+      "overflow": false
+    }
+  ],
+  "uncaughtErrors": 0
+}

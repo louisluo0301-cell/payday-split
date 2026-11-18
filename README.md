@@ -17,7 +17,8 @@
 - **健康面板视觉验收**：[桌面与手机截图](docs/visual-qa/README.md)，覆盖检查状态、费用告警、中断和恢复。
 - **单笔收入追踪与恢复**：从到账交易查回调、分账、钱包留存和可恢复金额。[GitHub 参考、截图与本地验证](docs/income-trace/README.md)。
 - **v9 收款与资金模块**：失败桶自动重试、原生 ETH 收款、Aave V3 储蓄、消费冷静期、Circle CCTP V2 测试 USDC 归集。[启用方法与验收](docs/income-modules/README.md)。
-- **当前进度**：独立监听作业已在真实测试网验证；PaydaySplit 核心的真实回调分账部署与外部审计待完成。
+- **v9 工作台优化**：同一部署切换 USDC 和 WETH，连接时核对钱包和链，原收入凭证自动对账补付结果，CSV 保留完整金额精度。[使用说明与本地验收](docs/workspace/README.md)。
+- **当前进度**：独立监听作业已在真实测试网验证。PaydaySplit 核心的真实回调分账部署与外部审计暂缓。
 
 ![PaydaySplit demo](docs/demo-preview.gif)
 
@@ -27,22 +28,22 @@
 
 ![Payday receipt](docs/receipt-example.png)
 
-> **v8 update (2026-11-18):** shared dashboard/CLI health checks, fee debt and reserve credit, subscription/user-control diagnostics, deduplicated alerts and recovery history. [v8 verification](docs/UPGRADE-v8.md) includes a real independent Sepolia → Lasna observation; PaydaySplit core callback deployment remains pending. [v7 allocation and cycle features](docs/UPGRADE-v7.md) remain available. Native ETH routing, bridges, yield and failed-bucket retries remain planned. Existing product screenshots/video show the earlier UI.
+> **v9 update:** the [income modules](docs/income-modules/README.md) add bounded retries, native ETH receiving through WETH, Aave V3 savings, withdrawal cooldowns and test USDC collection. The [dashboard workspace](docs/workspace/README.md) ties asset plans and payout evidence together. The demo video and images above show an earlier version.
 
 ## English quick read
 
 **PaydaySplit is a non-custodial income waterfall.** Every payment in a configured ERC-20 is routed by priority in one Reactive callback: the default preset puts fixed bills first (rent, salaries), then percentage buckets (tax, savings, bonus), and the remainder stays in the wallet. Up to 8 buckets, versioned rules, per-bucket failure isolation, and a manual recovery path.
 
-- **106 Foundry tests** and **39 frontend tests**, covering allocation, replay, budgets, diagnostics, receipt-based recovery and the v9 modules.
+- **106 Foundry tests** and **45 frontend tests**, covering allocation, replay, budgets, diagnostics, receipt-based recovery, asset and wallet selection, and the v9 modules.
 - **Local Anvil full loop is verified** — see `deployments/31337.evidence.json`; the **PaydaySplit core testnet callback/payout remains pending**. The independent camp observer has separate real testnet evidence.
 - **No-wallet demo:** `cd web && npm install && npm run dev`, then open `/?demo=1`.
-- **Local full loop:** `pwsh ./script/local-demo.ps1`; with MetaMask, also run `cd web && npm run local:watch`.
+- **Local full loop:** `pwsh ./script/local-demo.ps1`; run `npm run local:watch` in `web/` for ongoing callbacks. Use `-Port` for a separate instance or `-Reset` to clear a disposable Anvil.
 - **Video:** `docs/payday-split-demo.mp4` (2:57, local Anvil; Chinese narration + English subtitles).
 - **Shareable receipt:** each run has a **Receipt** button that downloads a 1200×630 PNG (income, buckets, retained, tx hash) for a submission card or social post.
 
 | Evidence | Status |
 |---|---|
-| Contracts: 106 tests; frontend: 39 tests | ✅ local; CI workflow included |
+| Contracts: 106 tests; frontend: 45 tests | ✅ local; CI workflow included |
 | Local Anvil end-to-end (Transfer → react → callback → Split/Retained) | ✅ verified |
 | Demo mode / judge quick path | ✅ `?demo=1` |
 | PaydaySplit core Sepolia + Lasna deployment | ⏳ callback/payout verification pending (see `docs/REMAINING_TASKS.md`) |
@@ -59,7 +60,7 @@ PaydaySplit 不再只是「工资自动存钱」，而是一个**收入分账引
 - 合约：Solidity `0.8.29`，Foundry，`reactive-lib-omni v0.1.0`
 - 规则：固定金额 + 百分比 + 优先级 + 版本号；最多 8 个去向
 - 前端：Vite + ethers v6，可视化 waterfall 编辑器
-- 测试：**87 个 Foundry 测试全部通过**（含 fuzz）
+- 测试：**106 个 Foundry 测试全部通过**（含 fuzz）
 - 本地全链路：Anvil + MockSystem + MockProxy 实测通过
 
 ---

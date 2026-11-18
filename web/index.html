@@ -141,6 +141,19 @@
           <span>Run <code>pwsh ./script/deploy.ps1</code> and refresh. The UI reads <code>web/public/deployments.json</code>.</span>
         </div>
 
+        <div class="workspace-controls">
+          <label id="asset-picker" hidden>Plan asset
+            <select id="asset-select" aria-label="Plan asset"></select>
+          </label>
+          <nav aria-label="Dashboard sections">
+            <a href="#waterfall-title">Plan</a>
+            <a href="#automation-health">Health</a>
+            <a href="#income-trace">Trace</a>
+            <a href="#income-modules">Modules</a>
+            <a href="#waterfall-activity">History</a>
+          </nav>
+        </div>
+
         <div class="grid">
           <article class="card card-rule">
             <div class="card-head">
@@ -167,7 +180,7 @@
 
             <div class="preview-row">
               <span class="meta-label">preview on</span>
-              <input id="sample-input" type="number" min="1" step="100" value="1000" aria-label="Preview paycheck amount" />
+              <input id="sample-input" type="text" inputmode="decimal" value="1000" aria-label="Preview paycheck amount" />
               <span id="sample-unit">dUSDC</span>
               <span class="preview-note">excludes allowance / balance limits</span>
             </div>
@@ -417,7 +430,7 @@
             </details>
           </article>
 
-          <article class="card card-activity">
+          <article id="waterfall-activity" class="card card-activity">
             <div class="card-head">
               <h3>Waterfall runs</h3>
               <div class="card-head-actions">
@@ -429,12 +442,12 @@
 
             <div class="activity-summary">
               <div>
-                <span class="meta-label">total routed</span>
+                <span class="meta-label">initially routed</span>
                 <strong id="total-saved">0.00</strong>
                 <span id="total-saved-unit">dUSDC</span>
               </div>
               <div>
-                <span class="meta-label">retained</span>
+                <span class="meta-label">initially retained</span>
                 <strong id="total-retained">0.00</strong>
                 <span id="total-retained-unit">dUSDC</span>
               </div>

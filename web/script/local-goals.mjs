@@ -1,13 +1,11 @@
 // Current release integration check. Requires a fresh local-demo run; local Anvil only.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import {Contract, JsonRpcProvider} from 'ethers';
+import {Contract} from 'ethers';
+import {openLocalAnvil} from './local-rpc.mjs';
 
 const d = JSON.parse(fs.readFileSync(new URL('../../deployments/31337.json', import.meta.url), 'utf8'));
-assert.equal(d.rpcUrl, 'http://127.0.0.1:8545');
-const provider = new JsonRpcProvider(d.rpcUrl);
-assert.equal((await provider.getNetwork()).chainId, 31337n);
-assert.match(await provider.send('web3_clientVersion', []), /anvil/i);
+const provider = await openLocalAnvil(d);
 const user = await provider.getSigner(d.deployer);
 const SYSTEM = '0x8888888888888888888888888888888888888888';
 await provider.send('anvil_impersonateAccount', [SYSTEM]);
