@@ -6,12 +6,12 @@
   "reactive": "0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9",
   "proxy": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
   "user": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
-  "paycheckTx": "0xaed7e751162d6ec123fa40ed5c2ac4c0c075dcbc419ccafaf9eeaf5694568503",
+  "paycheckTx": "0x3c370b6fdf9d4118703b4de5688590fa42d57833869d4a585ca3368f8f57987b",
   "reactTx": [
-    "0xa1cdef5cb90f3c241b52d068afd592bf13abd03d220a969855b450f7a04ff456"
+    "0x23da976e726c0bc3bbc6d2e417bb90cc1b172306c9db0b5da0b4c3ad11cbd149"
   ],
   "deliverTx": [
-    "0xbcda62fcdd1679d2929f137649ceabbec16d58cf37a5eb92786dc8e05af574dc"
+    "0xa266a978f8cbbb5b0642249243f9f4a476307f504f55bd3327e9bdeef22d828a"
   ],
   "amounts": [
     "300000000",
@@ -22,9 +22,9 @@
     "300000000"
   ],
   "splitTx": [
-    "0xbcda62fcdd1679d2929f137649ceabbec16d58cf37a5eb92786dc8e05af574dc",
-    "0xbcda62fcdd1679d2929f137649ceabbec16d58cf37a5eb92786dc8e05af574dc",
-    "0xbcda62fcdd1679d2929f137649ceabbec16d58cf37a5eb92786dc8e05af574dc"
+    "0xa266a978f8cbbb5b0642249243f9f4a476307f504f55bd3327e9bdeef22d828a",
+    "0xa266a978f8cbbb5b0642249243f9f4a476307f504f55bd3327e9bdeef22d828a",
+    "0xa266a978f8cbbb5b0642249243f9f4a476307f504f55bd3327e9bdeef22d828a"
   ],
-  "recordedAt": "2026-11-17T12:59:48.287Z"
+  "recordedAt": "2026-11-18T01:37:34.241Z"
 }

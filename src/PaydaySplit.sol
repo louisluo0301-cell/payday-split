@@ -31,6 +31,7 @@ contract PaydaySplit is AbstractPayer, Ownable2Step, Pausable, ReentrancyGuard {
     uint8 public constant SKIP_INSUFFICIENT_BALANCE = 2;
     uint8 public constant SKIP_TRANSFER_FAILED = 3;
     uint8 public constant SKIP_INACTIVE = 4;
+    uint8 public constant SKIP_GOAL_REACHED = 5;
 
     /// @notice One destination in the waterfall. Array order is priority.
     /// @param payee       Destination address.
@@ -148,6 +149,53 @@ contract PaydaySplit is AbstractPayer, Ownable2Step, Pausable, ReentrancyGuard {
     event PolicySet(address indexed user, address indexed token, Policy policy);
     event PolicyBlocked(address indexed user, address indexed token, uint8 reason);
     error OnlySelf();
+    error InvalidBucket();
+    error GoalVersionMismatch();
+
+    /// @notice A user-started funding cycle, scoped to a rule version and bucket index.
+    ///         A zero target disables the cap without erasing previously recorded progress.
+    struct BucketGoal {
+        uint96 target;
+        uint96 paid;
+        uint64 cycle;
+    }
+    mapping(address => mapping(address => mapping(uint256 => mapping(uint256 => BucketGoal)))) public bucketGoals;
+    event GoalSet(
+        address indexed user,
+        address indexed token,
+        uint256 indexed version,
+        uint256 bucketIndex,
+        uint96 target,
+        uint96 paid,
+        uint64 cycle
+    );
+    event GoalFunded(
+        address indexed user,
+        address indexed token,
+        uint256 indexed version,
+        uint256 bucketIndex,
+        uint96 paid,
+        uint96 target,
+        uint64 cycle
+    );
+
+    /// @notice Set or extend a target. Only an explicit new cycle resets paid progress.
+    /// @dev Rule changes create a new version with fresh goals. Identical saves keep progress.
+    function setBucketGoal(address token_, uint256 index_, uint256 expectedVersion_, uint96 target_, bool newCycle_)
+        external
+        nonReentrant
+    {
+        if (index_ >= _buckets[msg.sender][token_].length) revert InvalidBucket();
+        uint256 version = ruleVersion[msg.sender][token_];
+        if (version != expectedVersion_) revert GoalVersionMismatch();
+        BucketGoal storage goal = bucketGoals[msg.sender][token_][version][index_];
+        if (newCycle_ || goal.cycle == 0) {
+            goal.paid = 0;
+            goal.cycle += 1;
+        }
+        goal.target = target_;
+        emit GoalSet(msg.sender, token_, version, index_, target_, goal.paid, goal.cycle);
+    }
 
     /// @notice Controls apply immediately on the destination, including queued callbacks.
     function setPolicy(address token_, Policy calldata policy_) external nonReentrant {
@@ -233,6 +281,65 @@ contract PaydaySplit is AbstractPayer, Ownable2Step, Pausable, ReentrancyGuard {
         }
 
         retained = remaining;
+    }
+
+    /// @notice Best-effort execution preview for standard ERC-20s using current onchain state.
+    /// @dev Assumes transfers succeed; cannot predict token blacklists, fees, or state changes.
+    ///      Unlike previewWaterfall, includes goals, policy, global pause, balance and allowance.
+    function previewExecution(address user_, address token_, uint256 paycheck_)
+        external
+        view
+        returns (uint256[] memory amounts, uint256 retained, uint8 blocked)
+    {
+        Bucket[] storage list = _buckets[user_][token_];
+        amounts = new uint256[](list.length);
+        retained = paycheck_;
+        if (paused()) return (amounts, retained, 4);
+        (uint256 balance, uint256 allowance, uint256 budget, uint8 reason) = _executionBudget(user_, token_, paycheck_);
+        blocked = reason;
+        if (blocked != 0) return (amounts, retained, blocked);
+        uint256 version = ruleVersion[user_][token_];
+        for (uint256 i; i < list.length; ++i) {
+            Bucket memory bucket = list[i];
+            if (!bucket.active) continue;
+            uint256 requested = uint256(bucket.fixedAmount) + Math.mulDiv(paycheck_, bucket.bps, MAX_BPS);
+            uint256 amount = Math.min(Math.min(requested, retained), budget);
+            BucketGoal storage goal = bucketGoals[user_][token_][version][i];
+            if (goal.target > 0) amount = Math.min(amount, goal.paid >= goal.target ? 0 : goal.target - goal.paid);
+            if (amount == 0 || amount > balance || amount > allowance) continue;
+            amounts[i] = amount;
+            retained -= amount;
+            budget -= amount;
+            balance -= amount;
+            allowance -= amount;
+        }
+    }
+
+    function _executionBudget(address user_, address token_, uint256 paycheck_)
+        internal
+        view
+        returns (uint256 balance, uint256 allowance, uint256 budget, uint8 blocked)
+    {
+        balance = _readUint(token_, abi.encodeCall(IERC20.balanceOf, (user_)));
+        allowance = _readUint(token_, abi.encodeCall(IERC20.allowance, (user_, address(this))));
+        Policy memory policy = policies[user_][token_];
+        blocked = policy.paused
+            ? 1
+            : (policy.validUntil != 0 && block.timestamp >= policy.validUntil)
+                ? 2
+                : paycheck_ < policy.minIncome ? 3 : 0;
+        if (blocked != 0) return (balance, allowance, 0, blocked);
+        budget = paycheck_;
+        if (policy.maxPerRun != 0) budget = Math.min(budget, policy.maxPerRun);
+        DailySpend storage spent = dailySpend[user_][token_];
+        uint256 today = spent.day == block.timestamp / 1 days ? spent.amount : 0;
+        if (policy.dailyLimit != 0) {
+            budget = Math.min(budget, today >= policy.dailyLimit ? 0 : policy.dailyLimit - today);
+        }
+        if (policy.reserve != 0) {
+            uint256 spendable = balance == type(uint256).max || balance <= policy.reserve ? 0 : balance - policy.reserve;
+            budget = Math.min(budget, spendable);
+        }
     }
 
     function _storeBuckets(address token_, Bucket[] memory buckets_) internal {
@@ -359,35 +466,18 @@ contract PaydaySplit is AbstractPayer, Ownable2Step, Pausable, ReentrancyGuard {
         IERC20 token = IERC20(token_);
         Bucket[] storage list = _buckets[user_][token_];
         uint256 remaining = paycheck_;
-        uint256 balance = _readUint(address(token_), abi.encodeCall(IERC20.balanceOf, (user_)));
-        uint256 allowance = _readUint(address(token_), abi.encodeCall(IERC20.allowance, (user_, address(this))));
-        Policy memory policy = policies[user_][token_];
-        uint8 blocked = policy.paused
-            ? 1
-            : (policy.validUntil != 0 && block.timestamp >= policy.validUntil)
-                ? 2
-                : paycheck_ < policy.minIncome ? 3 : 0;
+        (uint256 balance, uint256 allowance, uint256 budget, uint8 blocked) = _executionBudget(user_, token_, paycheck_);
         if (blocked != 0) {
             emit PolicyBlocked(user_, token_, blocked);
             emit Retained(user_, token_, paycheck_, version_, originTxHash_, logIndex_);
             return;
         }
-        // Fail closed for an unreadable balance whenever a reserve is requested.
-        uint256 spendable = policy.reserve == 0
-            ? balance
-            : balance == type(uint256).max || balance <= policy.reserve ? 0 : balance - policy.reserve;
-        uint256 budget = remaining;
-        if (policy.maxPerRun != 0) budget = Math.min(budget, policy.maxPerRun);
         DailySpend storage spent = dailySpend[user_][token_];
         uint256 day = block.timestamp / 1 days;
         if (spent.day != day) {
             spent.day = day;
             spent.amount = 0;
         }
-        if (policy.dailyLimit != 0) {
-            budget = Math.min(budget, spent.amount >= policy.dailyLimit ? 0 : policy.dailyLimit - spent.amount);
-        }
-        if (policy.reserve != 0) budget = Math.min(budget, spendable);
 
         for (uint256 i; i < list.length; ++i) {
             Bucket memory bucket = list[i];
@@ -411,6 +501,17 @@ contract PaydaySplit is AbstractPayer, Ownable2Step, Pausable, ReentrancyGuard {
 
             uint256 amount = requested < remaining ? requested : remaining;
             amount = Math.min(amount, budget);
+            BucketGoal storage goal = bucketGoals[user_][token_][version_][i];
+            if (goal.target > 0) {
+                uint256 goalRemaining = goal.paid >= goal.target ? 0 : goal.target - goal.paid;
+                if (goalRemaining == 0) {
+                    emit BucketSkipped(
+                        user_, token_, i, paycheck_, requested, SKIP_GOAL_REACHED, version_, originTxHash_, logIndex_
+                    );
+                    continue;
+                }
+                amount = Math.min(amount, goalRemaining);
+            }
             if (amount == 0) {
                 emit BucketSkipped(
                     user_, token_, i, paycheck_, requested, SKIP_NO_FUNDS, version_, originTxHash_, logIndex_
@@ -445,6 +546,10 @@ contract PaydaySplit is AbstractPayer, Ownable2Step, Pausable, ReentrancyGuard {
             remaining -= amount;
             budget -= amount;
             spent.amount += amount;
+            if (goal.target > 0) {
+                goal.paid += uint96(amount); // amount <= target - paid, both uint96
+                emit GoalFunded(user_, token_, version_, i, goal.paid, goal.target, goal.cycle);
+            }
             emit Split(user_, token_, bucket.payee, paycheck_, amount, i, version_, originTxHash_, logIndex_);
         }
 

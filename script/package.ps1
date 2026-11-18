@@ -1,7 +1,10 @@
+param([string]$Version = 'v6', [string]$OutputDirectory = '')
 $ErrorActionPreference = 'Stop'
+if ($Version -notmatch '^v[0-9]+$') { throw 'Version must look like v6.' }
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $releaseRoot = Join-Path (Split-Path -Parent $projectRoot) 'release'
-$packageRoot = Join-Path $releaseRoot 'PaydaySplit-v5-交付包'
+if ($OutputDirectory) { $releaseRoot = [IO.Path]::GetFullPath($OutputDirectory) }
+$packageRoot = Join-Path $releaseRoot "PaydaySplit-$Version-交付包"
 if (Test-Path -LiteralPath $packageRoot) { throw 'Package already exists; choose a new release destination.' }
 $sourceRoot = Join-Path $packageRoot 'payday-split'
 New-Item -ItemType Directory -Path $sourceRoot -Force | Out-Null
@@ -29,7 +32,7 @@ foreach ($file in $files | Sort-Object FullName -Unique) {
 $manifest | ConvertTo-Json -Depth 4 | Set-Content (Join-Path $packageRoot 'SHA256-MANIFEST.json') -Encoding utf8
 Copy-Item -LiteralPath (Join-Path $projectRoot '交付入口.md') -Destination (Join-Path $packageRoot '先读我.md')
 Add-Type -AssemblyName System.IO.Compression.FileSystem
-$zipPath = Join-Path $releaseRoot 'PaydaySplit-v5-交付包.zip'
+$zipPath = Join-Path $releaseRoot "PaydaySplit-$Version-交付包.zip"
 [IO.Compression.ZipFile]::CreateFromDirectory($packageRoot,$zipPath)
 Get-Item -LiteralPath $zipPath | Select-Object FullName,Length
 Write-Host "Packaged $($manifest.Count) files."

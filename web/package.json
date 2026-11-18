@@ -10,7 +10,8 @@
     "build": "vite build",
     "preview": "vite preview --host 127.0.0.1",
     "local:watch": "node script/local-watch-loop.mjs",
-    "local:process": "node script/local-process.mjs"
+    "local:process": "node script/local-process.mjs",
+    "local:goals": "node script/local-goals.mjs"
   },
   "dependencies": {
     "ethers": "^6.13.4"

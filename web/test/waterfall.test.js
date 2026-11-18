@@ -36,3 +36,17 @@ test('daily limit already exhausted, and reserve above balance', () => {
   assert.equal(calculateRun(buckets,1000n,10n**20n,10n**20n,{dailyLimit:100n},101n).paid,0n);
   assert.equal(calculateRun(buckets,1000n,1000n,10n**20n,{reserve:1001n}).paid,0n);
 });
+test('funding target partially pays, then skips without blocking later destinations', () => {
+  const goals=[{target:350000000n,paid:300000000n}];
+  const r=calculateRun(buckets,1000000000n,10n**20n,10n**20n,{},0n,100,goals);
+  assert.deepEqual(r.splits.map(x=>x.amount),[50000000n,250000000n,150000000n]);
+  assert.equal(goals[0].paid,300000000n,'preview must not mutate progress');
+  goals[0].paid=350000000n;
+  const funded=calculateRun(buckets,1000000000n,10n**20n,10n**20n,{},0n,100,goals);
+  assert.equal(funded.splits[0].bucketIndex,1);
+  assert.equal(funded.retained,600000000n);
+});
+test('goal and spending caps compose without shifting bucket indices', () => {
+  const r=calculateRun(buckets,1000000000n,10n**20n,10n**20n,{maxPerRun:100000000n},0n,100,[{target:350000000n,paid:300000000n}]);
+  assert.deepEqual(r.splits.map(x=>[x.bucketIndex,x.amount]),[[0,50000000n],[1,50000000n]]);
+});

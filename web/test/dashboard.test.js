@@ -36,6 +36,33 @@ test('demo dashboard boots, saves controls, respects pause and manages allowance
     assert.match($('#allowance-pill').textContent,/123.45/);
     $('#revoke-allowance').click();
     assert.match($('#allowance-pill').textContent,/Allowance —/);
+    // Targets count payouts from activation, then prevent repeated bill payments.
+    $('#approval-amount').value='10000'; $('#approve-btn').click();
+    $('#policy-maxPerRun').value='0'; $('#save-policy').click();
+    $('[data-goal="0"]').value='350'; $('[data-save-goal="0"]').click();
+    await Promise.resolve();
+    $('#faucet-btn').click(); $('#faucet-btn').click(); $('#faucet-btn').click();
+    assert.match($('.goal-progress').textContent,/350\.0 \/ 350\.0.*Funded/);
+    assert.doesNotMatch($('.activity-group').textContent,/Rentbucket/);
+    $('[data-cycle="0"]').checked=true; $('[data-save-goal="0"]').click();
+    await Promise.resolve(); $('#faucet-btn').click();
+    assert.match($('.goal-progress').textContent,/300\.0 \/ 350\.0.*cycle 2/);
+    // Restoring a backup stages new rules and targets without importing paid history.
+    $('#plan-json').value=JSON.stringify({schema:'paydaysplit.plan',version:1,chainId:11155111,decimals:6,
+      token:'0x0000000000000000000000000000000000000000',
+      buckets:[{label:'New savings',payee:'0x0000000000000000000000000000000000000001',fixed:'0',bps:'10',active:true}],
+      policy:{reserve:'0',maxPerRun:'200',dailyLimit:'0',minIncome:'0',validUntil:'0',paused:false},goalTargets:['75']});
+    $('#plan-import').click();
+    assert.equal($('#buckets-list').children.length,1);
+    assert.equal($('[data-goal="0"]').value,'75');
+    // Equivalent chain formatting must not discard the imported target draft.
+    const fixedInput = $('[data-f="fixed"]');
+    fixedInput.value='0.0'; fixedInput.dispatchEvent(new window.Event('input',{bubbles:true}));
+    assert.equal($('[data-goal="0"]').value,'75');
+    assert.match($('.goal-progress').textContent,/0\.0 \/ 0\.0/);
+    $('#save-policy').click(); $('[data-save-goal="0"]').click();
+    await Promise.resolve(); $('#faucet-btn').click();
+    assert.match($('.activity-group').textContent,/\+75\.00/);
   } finally {
     intervals.forEach(clearInterval);
     globalThis.setInterval = originalInterval;
