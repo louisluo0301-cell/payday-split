@@ -8,6 +8,7 @@ import { IPayable } from "@reactive/src/interfaces/IPayable.sol";
 import { PaydaySplit } from "../src/PaydaySplit.sol";
 import { PaydaySplitReactive } from "../src/PaydaySplitReactive.sol";
 import { DemoUSDC } from "../src/DemoUSDC.sol";
+import { IncomeModuleFactory } from "../src/IncomeModules.sol";
 
 /// @notice Step 1 (destination chain): deploy DemoUSDC if TOKEN_ADDR is empty, then PaydaySplit.
 /// forge script script/Deploy.s.sol:DeployDest --rpc-url $SEPOLIA_RPC_URL --broadcast --non-interactive
@@ -23,10 +24,13 @@ contract DeployDest is Script {
             token = address(new DemoUSDC(deployer));
         }
         PaydaySplit split = new PaydaySplit(IPayable(payable(proxy)), deployer);
+        IncomeModuleFactory factory = new IncomeModuleFactory(address(split));
         vm.stopBroadcast();
 
         console.log("TOKEN_ADDR=", token);
         console.log("SPLIT_ADDR=", address(split));
+        console.log("MODULE_FACTORY=", address(factory));
+        console.log("RETRY_QUEUE=", address(split.retryQueue()));
         console.log("DEST_CHAIN_ID=", block.chainid);
     }
 }
@@ -41,15 +45,18 @@ contract DeployReactive is Script {
         uint256 limit = vm.envOr("MAX_CALLBACKS", uint256(100));
         uint256 fund = vm.envOr("REACTIVE_FUND_WEI", uint256(0.5 ether));
         uint256 minPaycheck = vm.envOr("MIN_PAYCHECK", uint256(1e6));
+        uint256 retryTicks = vm.envOr("RETRY_CRON_TICKS", uint256(0));
 
         vm.startBroadcast(pk);
         PaydaySplitReactive reactive = new PaydaySplitReactive{ value: fund }(chainId, split, chainId, split, limit);
         reactive.setMinPaycheck(minPaycheck);
+        if (retryTicks != 0) reactive.setRetrySchedule(retryTicks);
         vm.stopBroadcast();
 
         console.log("REACTIVE_ADDR=", address(reactive));
         console.log("MAX_CALLBACKS=", limit);
         console.log("MIN_PAYCHECK=", minPaycheck);
+        console.log("RETRY_CRON_TICKS=", retryTicks);
     }
 }
 

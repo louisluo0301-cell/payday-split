@@ -2891,3 +2891,21 @@ input[type="range"]::-moz-range-thumb {
 .trace-link { color: var(--green-deep); font-size: 13px; text-decoration: underline; text-underline-offset: 3px; }
 .trace-actions { display: flex; flex-wrap: wrap; gap: 10px; }
 .trace-actions:has(button:not([hidden])) { margin-top: 14px; }
+
+.module-section { padding: 12px 0; border-top: 1px solid var(--line); }
+.module-section summary { color: var(--green-deep); font-weight: 650; cursor: pointer; }
+.module-status, .module-help, .module-jobs { color: var(--ink-soft); font-size: 13px; overflow-wrap: anywhere; }
+.module-status:empty, .module-jobs:empty { display: none; }
+.module-inputs { display: flex; flex-wrap: wrap; align-items: end; gap: 8px 12px; margin: 12px 0; }
+.module-inputs label { display: grid; flex: 1 1 190px; max-width: 360px; min-width: 0; gap: 5px; font-size: 13px; }
+.module-inputs input {
+  width: 100%;
+  min-height: 44px;
+  min-width: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: var(--white);
+  color: var(--ink);
+  font-size: 16px;
+}

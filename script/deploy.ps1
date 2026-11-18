@@ -61,6 +61,8 @@ function Get-Address([string]$text, [string]$name) {
 $out1 = Invoke-Forge "script/Deploy.s.sol:DeployDest" $destRpc
 $token = Get-Address $out1 "TOKEN_ADDR"
 $split = Get-Address $out1 "SPLIT_ADDR"
+$factory = Get-Address $out1 "MODULE_FACTORY"
+$queue = Get-Address $out1 "RETRY_QUEUE"
 Set-EnvLine "TOKEN_ADDR" $token
 Set-EnvLine "SPLIT_ADDR" $split
 
@@ -94,6 +96,7 @@ $deployment = [ordered]@{
     explorer = $explorer
     token = $token
     split = $split
+    modules = [ordered]@{ factory = $factory; retryQueue = $queue; wrappedNative = [string]$env:WRAPPED_NATIVE; aavePool = [string]$env:AAVE_POOL }
     reactive = $reactive
     proxy = $env:CALLBACK_PROXY
     deployer = $deployer

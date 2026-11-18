@@ -343,6 +343,80 @@
             </div>
           </article>
 
+          <article id="income-modules" class="card card-trace" aria-labelledby="modules-title">
+            <div class="card-head">
+              <h3 id="modules-title">Income modules</h3>
+              <button id="modules-refresh" class="btn btn-small btn-outline" type="button">Refresh modules</button>
+            </div>
+            <p id="modules-status" class="module-status" role="status"></p>
+            <details class="module-section">
+              <summary>Failed bucket retries</summary>
+              <p id="retry-status" class="module-status"></p>
+              <p class="module-help">Retry jobs use the original income’s remaining budget and expire at the UTC day boundary. Pause or change your plan to prevent stale jobs from paying.</p>
+              <ul id="retry-jobs" class="module-jobs"></ul>
+              <div class="trace-actions">
+                <button id="retry-toggle" class="btn btn-small btn-outline" type="button" disabled>Enable retries</button>
+                <button id="retry-process" class="btn btn-small btn-ghost" type="button" disabled>Process due jobs</button>
+              </div>
+              <div class="module-inputs">
+                <label>Retry job ID<input id="retry-id" type="number" min="1" step="1"></label>
+                <button id="retry-cancel" class="btn btn-small btn-ghost" type="button" disabled>Cancel this job</button>
+              </div>
+            </details>
+            <details class="module-section">
+              <summary>Native ETH income address</summary>
+              <p id="native-status" class="module-status"></p>
+              <p class="module-help">Pay this address with native ETH. It wraps the payment and forwards WETH to the wallet with your WETH income rule.</p>
+              <button id="native-create" class="btn btn-small btn-outline" type="button" disabled>Create ETH receiver</button>
+              <button id="native-copy" class="btn btn-small btn-ghost" type="button" disabled>Copy receiving address</button>
+            </details>
+            <details class="module-section">
+              <summary>Aave V3 savings</summary>
+              <p id="aave-status" class="module-status"></p>
+              <p class="module-help">Saved allocations supply the configured Aave reserve. Your wallet receives the aTokens, and the supply rate changes with the reserve.</p>
+              <div class="trace-actions">
+                <button id="aave-create" class="btn btn-small btn-outline" type="button" disabled>Create savings bucket</button>
+                <button id="aave-register" class="btn btn-small btn-outline" type="button" disabled>Enable automatic supply</button>
+                <button id="aave-stage" class="btn btn-small btn-ghost" type="button" disabled>Add savings destination</button>
+              </div>
+              <div class="module-inputs">
+                <label>Assets to withdraw<input id="aave-withdraw-amount" type="text" inputmode="decimal" placeholder="100"></label>
+                <label>Separate receiving wallet<input id="aave-withdraw-address" type="text" spellcheck="false" placeholder="0x…"></label>
+                <button id="aave-withdraw" class="btn btn-small btn-ghost" type="button" disabled>Withdraw from Aave</button>
+              </div>
+            </details>
+            <details class="module-section">
+              <summary>Spending cooldown</summary>
+              <p id="cooldown-status" class="module-status"></p>
+              <div class="module-inputs">
+                <label>Delay in hours<input id="cooldown-hours" type="number" min="1" max="720" step="1" value="24"></label>
+                <button id="cooldown-create" class="btn btn-small btn-outline" type="button" disabled>Create locked bucket</button>
+                <button id="cooldown-stage" class="btn btn-small btn-ghost" type="button" disabled>Add locked destination</button>
+              </div>
+              <div class="module-inputs">
+                <label>Withdrawal amount<input id="cooldown-amount" type="text" inputmode="decimal"></label>
+                <button id="cooldown-request" class="btn btn-small btn-outline" type="button" disabled>Start waiting period</button>
+                <button id="cooldown-release" class="btn btn-small btn-primary" type="button" disabled>Release funds</button>
+                <button id="cooldown-cancel" class="btn btn-small btn-ghost" type="button" disabled>Cancel withdrawal</button>
+              </div>
+            </details>
+            <details class="module-section">
+              <summary>Collect test USDC from Base Sepolia</summary>
+              <p class="module-help">Circle CCTP V2 collects USDC in your same wallet on Sepolia. Sign the burn on Base Sepolia, then switch to Sepolia to check the attestation and sign the mint.</p>
+              <div class="module-inputs">
+                <label>Base Sepolia USDC amount<input id="bridge-amount" type="text" inputmode="decimal"></label>
+                <label>Maximum Circle fee (USDC)<input id="bridge-max-fee" type="text" inputmode="decimal" value="0"></label>
+                <button id="bridge-burn" data-bridge-action class="btn btn-small btn-outline" type="button" disabled>Collect USDC</button>
+                <button id="bridge-revoke" data-bridge-action class="btn btn-small btn-ghost" type="button" disabled>Revoke Circle approval</button>
+              </div>
+              <div class="module-inputs">
+                <label>Base Sepolia burn hash<input id="bridge-hash" type="text" spellcheck="false" maxlength="66" placeholder="0x…"></label>
+                <button id="bridge-mint" data-bridge-action class="btn btn-small btn-primary" type="button" disabled>Check and mint on Sepolia</button>
+              </div>
+              <p id="bridge-status" class="module-status" role="status"></p>
+            </details>
+          </article>
+
           <article class="card card-activity">
             <div class="card-head">
               <h3>Waterfall runs</h3>

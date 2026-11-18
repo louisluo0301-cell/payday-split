@@ -21,7 +21,10 @@ contract PaydaySplitReactive is AbstractReactive, Ownable2Step {
 
     uint256 public constant MAX_BUCKETS = 8;
     uint16 public constant MAX_TOTAL_BPS = 10_000;
-    uint64 public constant CALLBACK_GAS_LIMIT = 1_500_000;
+    uint64 public constant CALLBACK_GAS_LIMIT = 2_000_000;
+    uint64 public constant RETRY_CALLBACK_GAS_LIMIT = 1_800_000;
+    address public constant CRON_SOURCE = 0x0000000000000000000000000000000000fffFfF;
+    uint256 public constant CRON1000_TOPIC = 0xe20b31294d84c3661ddc8f423abb9c70310d0cf172aa2714ead78029b325e3f4;
     uint256 public constant USER_CALLBACK_LIMIT = 100;
 
     uint8 public constant SKIP_INACTIVE = 1;
@@ -53,6 +56,8 @@ contract PaydaySplitReactive is AbstractReactive, Ownable2Step {
     event ToppedUp(uint256 remaining, uint256 added);
     event MinPaycheckSet(uint256 minPaycheck);
     event UserBudgetReset(address indexed user, address indexed token, uint256 remaining);
+    event RetryScheduleSet(uint256 remaining);
+    event RetryCallbackRequested(uint256 indexed tick, uint256 remaining);
 
     error ZeroAddress();
 
@@ -67,6 +72,8 @@ contract PaydaySplitReactive is AbstractReactive, Ownable2Step {
     uint256 public remaining;
     uint256 public minPaycheck;
     bool public paused;
+    uint256 public remainingRetryCalls;
+    uint256 public lastRetryTick;
 
     constructor(
         uint256 chainId_,
@@ -95,6 +102,10 @@ contract PaydaySplitReactive is AbstractReactive, Ownable2Step {
 
     /// @inheritdoc IReactive
     function react(LogRecord calldata log_) external onlySystem {
+        if (log_.topic0 == CRON1000_TOPIC) {
+            _onRetryTick(log_);
+            return;
+        }
         if (log_.topic0 == BUCKETS_SET_TOPIC_0) {
             _mirrorRule(log_);
             return;
@@ -102,6 +113,45 @@ contract PaydaySplitReactive is AbstractReactive, Ownable2Step {
         if (log_.topic0 == TRANSFER_TOPIC_0) {
             _onTransfer(log_);
         }
+    }
+
+    function setRetrySchedule(uint256 limit_) external onlyOwner {
+        if ((limit_ == 0) != (remainingRetryCalls == 0)) _retrySubscription(limit_ != 0);
+        remainingRetryCalls = limit_;
+        emit RetryScheduleSet(limit_);
+    }
+
+    function _retrySubscription(bool enabled) private {
+        if (enabled) {
+            SYSTEM.subscribe(
+                block.chainid, CRON_SOURCE, CRON1000_TOPIC, REACTIVE_IGNORE, REACTIVE_IGNORE, REACTIVE_IGNORE
+            );
+        } else {
+            SYSTEM.unsubscribe(
+                block.chainid, CRON_SOURCE, CRON1000_TOPIC, REACTIVE_IGNORE, REACTIVE_IGNORE, REACTIVE_IGNORE
+            );
+        }
+    }
+
+    function _onRetryTick(LogRecord calldata log_) private {
+        if (
+            paused || remainingRetryCalls == 0 || log_.chainId != block.chainid || log_.contractAddress != CRON_SOURCE
+                || log_.opCode != 1 || log_.data.length != 32
+        ) return;
+        uint256 tick = abi.decode(log_.data, (uint256));
+        if (tick <= lastRetryTick || tick != log_.blockNumber || tick % 1_000 != 0) return;
+        lastRetryTick = tick;
+        --remainingRetryCalls;
+        SYSTEM.requestCallbackV_1_0(
+            ISystemContract.CallbackConfiguration_V_1_0({
+                chainId: DEST_CHAIN_ID,
+                recipient: CALLBACK_CONTRACT,
+                gasLimit: RETRY_CALLBACK_GAS_LIMIT,
+                payload: abi.encodeWithSignature("executeRetries(address)", address(0))
+            })
+        );
+        if (remainingRetryCalls == 0) _retrySubscription(false);
+        emit RetryCallbackRequested(tick, remainingRetryCalls);
     }
 
     // ---------------------------------------------------------------------
