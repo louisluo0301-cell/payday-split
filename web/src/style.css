@@ -1078,7 +1078,7 @@ input[type="range"]::-moz-range-thumb {
 
 .action-step {
   display: grid;
-  grid-template-columns: 30px minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 12px;
   align-items: center;
   padding: 15px 0;
@@ -1092,17 +1092,6 @@ input[type="range"]::-moz-range-thumb {
 
 .action-step:last-child {
   padding-bottom: 0;
-}
-
-.step-num {
-  width: 26px;
-  height: 26px;
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  border: 1px solid var(--line-strong);
-  font-family: var(--mono);
-  font-size: 10px;
 }
 
 .step-body {
@@ -2902,6 +2891,133 @@ input[type="range"]::-moz-range-thumb {
 .workspace-controls nav { display: flex; flex-wrap: wrap; gap: 4px 10px; }
 .workspace-controls a { display: inline-flex; align-items: center; min-height: 42px; padding: 0 7px; color: var(--green-deep); text-decoration: underline; text-underline-offset: 4px; font-size: 13px; font-weight: 600; }
 #waterfall-title, #waterfall-activity { scroll-margin-top: 105px; }
+.workspace-next {
+  --status-mark: #4b6f59;
+  --status-surface: #eff4eb;
+  padding: clamp(18px, 3vw, 30px);
+  margin-bottom: 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: linear-gradient(105deg, var(--status-surface), var(--white) 78%);
+  box-shadow: 0 22px 48px -42px rgba(18, 37, 28, .55);
+}
+.workspace-next[data-tone="ready"] { --status-mark: #1a6543; --status-surface: #e3f0e4; }
+.workspace-next[data-tone="warning"] { --status-mark: #88500f; --status-surface: #faf0db; }
+.workspace-next[data-tone="demo"] { --status-mark: #4b5b39; --status-surface: #edf0df; }
+.workspace-next-head {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px 28px;
+}
+.workspace-next-copy { flex: 1 1 315px; min-width: 0; }
+.workspace-scope {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--status-mark);
+  font: 600 12px/1.4 var(--sans);
+  margin: 0 0 9px;
+}
+.workspace-scope::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  background: var(--status-mark);
+  border-radius: 50%;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--status-mark) 12%, transparent);
+}
+.workspace-next h3 {
+  margin: 0 0 7px;
+  font: 500 clamp(1.45rem, 2.8vw, 2.1rem)/1.12 var(--display);
+  letter-spacing: -.025em;
+}
+#workspace-next-note { max-width: 62ch; margin: 0; color: var(--ink-soft); font-size: 14px; }
+.workspace-next-head .btn { min-height: 44px; text-align: center; white-space: normal; }
+.workspace-stages {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  padding-top: 16px;
+  margin: 18px 0 0;
+  border-top: 1px solid var(--line);
+}
+.workspace-stages > div { min-width: 0; }
+.workspace-stages dt { font-size: 12px; color: var(--ink-soft); }
+.workspace-stages dd { margin: 4px 0 0; font-size: 14px; font-weight: 650; overflow-wrap: anywhere; }
+.workspace-controls a:focus-visible,
+.policy-panel summary:focus-visible,
+.payment-extra summary:focus-visible { outline: 2px solid var(--green); outline-offset: 3px; border-radius: 5px; }
+#payment-controls, #activity-heading, #allocation-mode, #approval-amount, #health-refresh,
+#spending-controls summary, #native-receiver summary, #trace-hash, #sample-input, #asset-select { scroll-margin-top: 108px; }
+#payment-controls .card-head { align-items: baseline; flex-wrap: wrap; gap: 8px 12px; }
+#allowance-pill { white-space: normal; overflow-wrap: anywhere; }
+.approval-step { grid-template-columns: minmax(0, 1fr); }
+.approval-entry { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 10px; }
+.approval-entry label { grid-column: 1 / -1; color: var(--ink-soft); font-size: 12px; }
+.approval-entry input, .manual-amount input {
+  min-width: 0;
+  min-height: 44px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: var(--paper);
+  color: var(--ink);
+  padding: 9px 12px;
+  font: 500 16px/1.2 var(--mono);
+}
+.approval-entry .btn, .manual-amount .btn { min-height: 44px; }
+.policy-panel summary, .payment-extra summary {
+  color: var(--green-deep);
+  font-size: 14px;
+  font-weight: 650;
+  cursor: pointer;
+  padding: 9px 0;
+}
+.payment-extra { margin-top: 11px; border-top: 1px solid var(--line); padding-top: 8px; }
+.payment-extra .health-jump { display: block; margin-top: 8px; }
+.wallet-options { display: grid; gap: 8px; }
+.wallet-options .btn { justify-content: start; min-height: 44px; white-space: normal; }
+.wallet-options p { color: var(--ink-soft); margin: 0; }
+.wallet-chip:has(#wallet-reauthorize:not([hidden])) { flex-wrap: wrap; max-width: 100%; white-space: normal; }
+#wallet-provider-label { max-width: 112px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.manual-dialog {
+  width: min(94vw, 620px);
+  max-height: 90vh;
+  max-height: 90dvh;
+  overflow: auto;
+}
+body:has(.manual-dialog[open]) { overflow: hidden; }
+.manual-dialog .import-head p { overflow-wrap: anywhere; }
+.manual-dialog label { font-size: 13px; font-weight: 650; }
+.manual-dialog p { margin: 0; }
+.manual-amount { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+.manual-payouts {
+  list-style: none;
+  margin: 0;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.manual-payouts li { display: flex; align-items: start; justify-content: space-between; gap: 4px 12px; flex-wrap: wrap; padding: 10px 0; }
+.manual-payouts li + li { border-top: 1px solid var(--line); }
+.manual-payouts li > div { min-width: 0; }
+.manual-payouts strong { display: block; font-size: 14px; }
+.manual-payouts code { color: var(--ink-soft); font-size: 11px; overflow-wrap: anywhere; }
+.manual-payouts li > span { overflow-wrap: anywhere; font: 600 13px/1.4 var(--mono); }
+.manual-totals { color: var(--green-deep); font-size: 14px; font-weight: 650; }
+[aria-invalid="true"] { border-color: var(--red) !important; }
+@media (max-width: 540px) {
+  .workspace-next-head { align-items: stretch; }
+  .workspace-next-head .btn { width: 100%; }
+  .workspace-stages { gap: 8px; }
+  .workspace-stages dt { line-height: 1.25; }
+  .workspace-stages dd { font-size: 12px; }
+  .approval-entry input { width: 100%; }
+  .manual-dialog .import-form { padding: 16px; }
+  .manual-amount { grid-template-columns: minmax(0, 1fr); }
+}
 .module-inputs { display: flex; flex-wrap: wrap; align-items: end; gap: 8px 12px; margin: 12px 0; }
 .module-inputs label { display: grid; flex: 1 1 190px; max-width: 360px; min-width: 0; gap: 5px; font-size: 13px; }
 .module-inputs input {

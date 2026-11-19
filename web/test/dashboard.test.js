@@ -17,6 +17,17 @@ test('demo dashboard boots, saves controls, respects pause and manages allowance
     await import('../src/main.js');
     const $ = s => window.document.querySelector(s);
     assert.match($('#network-label').textContent,/Demo/);
+    assert.equal($('#workspace-next-action').dataset.action, 'sample');
+    const sample = $('#sample-input');
+    sample.value = '0';
+    sample.dispatchEvent(new window.Event('input', { bubbles: true }));
+    assert.equal(sample.getAttribute('aria-invalid'), 'true');
+    const initialActivity = $('.activity-group').textContent;
+    $('#workspace-next-action').click();
+    assert.equal($('.activity-group').textContent, initialActivity);
+    sample.value = '1000';
+    sample.dispatchEvent(new window.Event('input', { bubbles: true }));
+    assert.equal($('#sample-error').hidden, true);
     assert.equal($('#buckets-list').children.length,3);
     assert.ok($('.activity-group'), 'initial sample run renders');
     assert.match($('#health-summary').textContent,/Demo checks/);
