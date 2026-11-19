@@ -5,7 +5,7 @@ Validated 2026-11-18. See [income modules](income-modules/README.md), [workspace
 ## Results
 
 - Foundry: **106 passed, 0 failed**, including fuzz tests and the v9 income modules.
-- Frontend: **45 passed, 0 failed**. Added checks for per-asset deployment settings, wallet network and account, exact CSV decimals, retry receipt matching, and loopback relay validation.
+- Frontend: **50 passed, 0 failed**. Includes testnet deployment validation, workspace guidance, payment review, exact CSV decimals, retry receipt matching and loopback relay validation.
 - PowerShell environment parser: 7 checks; inline comments, quotes, URL fragments, export assignments, empty values and malformed quotes. Included in CI.
 - `forge fmt --check` and `npm run build`: passed. Source syntax checks include JavaScript modules and PowerShell scripts.
 - Historical Anvil full loop: Transfer → react → MockProxy → 3 Split + Retained. Evidence: `deployments/31337.evidence.json`.

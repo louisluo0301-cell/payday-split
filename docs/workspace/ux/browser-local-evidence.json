@@ -1,0 +1,16 @@
+{
+  "network": "Isolated local Anvil",
+  "demo": "sample run and keyboard focus in history",
+  "setup": "choose the intended wallet from two extensions, connect, set allowance, verify automation",
+  "deployment": "browser import rejects mainnet",
+  "payment": {
+    "initial": 700,
+    "updated": 400,
+    "paid": 400,
+    "unit": "dUSDC",
+    "changedQuoteSent": false
+  },
+  "desktop": 1440,
+  "mobile": 390,
+  "uncaughtErrors": 0
+}

@@ -51,7 +51,7 @@
           </p>
           <div class="hero-actions">
             <button class="btn btn-primary" id="connect-hero" type="button">Connect wallet <span class="arrow">↗</span></button>
-            <a class="btn btn-ghost" href="#how">See the loop <span class="arrow">↓</span></a>
+            <a class="btn btn-ghost" href="?demo=1#dashboard" id="hero-demo">Try without a wallet <span class="arrow" aria-hidden="true">↗</span></a>
           </div>
           <div class="trust-row">
             <span>Non-custodial</span><i></i><span>Up to 8 buckets</span><i></i><span id="network-label">Sepolia testnet</span>
@@ -63,7 +63,7 @@
           <div class="paycheck-card">
             <div class="pc-top">
               <span class="mono">INCOME</span>
-              <span class="pc-badge"><span class="dot"></span>LIVE</span>
+              <span class="pc-badge"><span class="dot"></span>EXAMPLE</span>
             </div>
             <div class="pc-amount">$4,200<span>.00</span></div>
             <div class="pc-rule">one waterfall · four destinations</div>
@@ -126,19 +126,15 @@
       <section id="dashboard" class="dashboard">
         <div class="section-head">
           <div>
-            <div class="kicker">Live dashboard</div>
-            <h2>Your income, on rails.</h2>
+            <h2 id="dashboard-title">Income workspace</h2>
           </div>
           <div class="wallet-chip" id="wallet-chip">
             <span class="wallet-dot"></span>
             <span id="wallet-label">Not connected</span>
+            <span id="wallet-provider-label" hidden></span>
+            <button id="wallet-reauthorize" class="link-btn" type="button" hidden>Update wallet access</button>
             <button id="disconnect" type="button" class="link-btn" hidden>Disconnect</button>
           </div>
-        </div>
-
-        <div class="banner" id="deployment-banner" hidden>
-          <b>Contracts not deployed yet.</b>
-          <span>Run <code>pwsh ./script/deploy.ps1</code> and refresh. The UI reads <code>web/public/deployments.json</code>.</span>
         </div>
 
         <div class="workspace-controls">
@@ -147,17 +143,36 @@
           </label>
           <nav aria-label="Dashboard sections">
             <a href="#waterfall-title">Plan</a>
+            <a href="#payment-controls">Payments</a>
             <a href="#automation-health">Health</a>
             <a href="#income-trace">Trace</a>
             <a href="#income-modules">Modules</a>
             <a href="#waterfall-activity">History</a>
           </nav>
+          <button id="open-deployment" class="btn btn-small btn-outline" type="button">Open testnet workspace</button>
         </div>
+
+        <section class="workspace-next" aria-labelledby="workspace-next-title">
+          <div class="workspace-next-head">
+            <div class="workspace-next-copy" role="status" aria-atomic="true">
+              <p id="workspace-scope" class="workspace-scope">PaydaySplit</p>
+              <h3 id="workspace-next-title">Set up income routing</h3>
+              <p id="workspace-next-note"></p>
+            </div>
+            <a id="workspace-demo-link" href="?demo=1#dashboard" class="btn btn-primary" hidden>Open interactive demo</a>
+            <button id="workspace-next-action" class="btn btn-primary" type="button" hidden></button>
+          </div>
+          <dl id="workspace-stages" class="workspace-stages" hidden>
+            <div><dt>Destinations</dt><dd id="workspace-plan"></dd></div>
+            <div><dt>Spending permission</dt><dd id="workspace-allowance"></dd></div>
+            <div><dt>Automation</dt><dd id="workspace-health"></dd></div>
+          </dl>
+        </section>
 
         <div class="grid">
           <article class="card card-rule">
             <div class="card-head">
-              <h3 id="waterfall-title">Your waterfall</h3>
+              <h3 id="waterfall-title" tabindex="-1">Your waterfall</h3>
               <span class="pill" id="rule-pill">Not set</span>
             </div>
 
@@ -179,11 +194,12 @@
             <div class="waterfall-legend" id="waterfall-legend"></div>
 
             <div class="preview-row">
-              <span class="meta-label">preview on</span>
+              <label for="sample-input" class="meta-label">Preview income</label>
               <input id="sample-input" type="text" inputmode="decimal" value="1000" aria-label="Preview paycheck amount" />
               <span id="sample-unit">dUSDC</span>
-              <span class="preview-note">excludes allowance / balance limits</span>
+              <span class="preview-note" id="sample-note">Allocation before spending limits</span>
             </div>
+            <p id="sample-error" class="rule-error" role="status" hidden></p>
 
             <div class="preset-row" role="group" aria-label="Presets">
               <span class="meta-label">Start with</span>
@@ -197,7 +213,7 @@
             <form id="rule-form" class="rule-form">
               <div class="buckets-head">
                 <span>Priority order</span>
-                <span class="meta-label">fixed first · then % of gross</span>
+                <span class="meta-label" id="editor-allocation-note">Fixed amounts and % of income</span>
               </div>
               <div id="buckets-list" class="buckets-list"></div>
               <div class="bucket-actions">
@@ -221,9 +237,9 @@
             </form>
           </article>
 
-          <article class="card card-action">
+          <article class="card card-action" id="payment-controls">
             <div class="card-head">
-              <h3>Make it happen</h3>
+              <h3>Payments</h3>
               <span class="pill pill-soft" id="allowance-pill">Allowance —</span>
             </div>
 
@@ -233,52 +249,56 @@
             </div>
 
             <div class="action-list">
-              <div class="action-step" id="step-approve">
-                <div class="step-num">1</div>
+              <div class="action-step approval-step" id="step-approve">
                 <div class="step-body">
-                  <b>Allow PaydaySplit to move your income</b>
-                  <span>Approve a specific amount. Revoke it whenever you want.</span>
+                  <b>Spending permission</b>
+                  <span id="approval-note">Choose how much this plan can spend before you renew its allowance.</span>
                 </div>
-                <button class="btn btn-small btn-outline" id="approve-btn" type="button" disabled>Approve</button>
+                <div class="approval-entry">
+                  <label for="approval-amount">Allowance amount <span id="approval-unit"></span></label>
+                  <input id="approval-amount" type="text" inputmode="decimal" aria-describedby="approval-note" value="1000">
+                  <button class="btn btn-small btn-outline" id="approve-btn" type="button" disabled>Approve</button>
+                </div>
               </div>
 
               <div class="action-step" id="step-paycheck">
-                <div class="step-num">2</div>
                 <div class="step-body">
                   <b id="faucet-title">Claim a demo income</b>
-                  <span id="faucet-note">Emits a real ERC-20 Transfer — the exact event Reactive watches.</span>
+                  <span id="faucet-note">Connect your wallet to see how to receive this asset.</span>
                 </div>
                 <button class="btn btn-small btn-ink" id="faucet-btn" type="button" disabled>Claim</button>
               </div>
 
               <div class="action-step">
-                <div class="step-num">3</div>
                 <div class="step-body">
-                  <b>Watch the waterfall run</b>
+                  <b>Automation status</b>
                   <span id="reactive-note">Reactive mirrors your buckets and requests one callback.</span>
                   <a class="health-jump" href="#automation-health">View health checks</a>
-                  <button class="btn btn-small btn-ghost run-now" id="run-now" type="button">New manual payment</button>
                 </div>
                 <div class="live-indicator" id="reactive-live"><span class="dot"></span><span id="remaining-label">—</span></div>
               </div>
             </div>
 
-            <div class="policy-panel">
-              <h4>Spending controls</h4>
-              <p class="fineprint">Token amounts. Zero means no limit, except wallet reserve. Daily limits reset at 00:00 UTC. Save separately from destinations.</p>
+            <details class="policy-panel" id="spending-controls">
+              <summary>Spending controls</summary>
+              <p class="fineprint">Daily limits reset at 00:00 UTC. A value of zero clears the corresponding control.</p>
               <div class="policy-grid">
-                <label>Approval amount<input id="approval-amount" type="number" min="0" step="any" value="1000"></label>
                 <label>Keep in wallet<input id="policy-reserve" type="number" min="0" step="any" value="0"></label>
                 <label>Maximum per run<input id="policy-maxPerRun" type="number" min="0" step="any" value="0"></label>
                 <label>Maximum per UTC day<input id="policy-dailyLimit" type="number" min="0" step="any" value="0"></label>
                 <label>Minimum income<input id="policy-minIncome" type="number" min="0" step="any" value="0"></label>
                 <label>Valid until (your local time)<input id="policy-expiry" type="datetime-local"></label>
               </div>
-              <label class="policy-pause"><input id="policy-paused" type="checkbox"> Pause execution immediately</label>
+              <label class="policy-pause"><input id="policy-paused" type="checkbox"> Pause after saving</label>
               <button class="btn btn-small btn-outline" id="save-policy" type="button">Save spending controls</button>
-              <p id="policy-status" class="fineprint" role="status">Connect to read onchain controls. Preview above shows destination math before spending controls.</p>
-              <a class="health-jump" href="#income-trace">Trace or recover an income</a>
-            </div>
+              <p id="policy-status" class="fineprint" role="status">Connect to read your saved controls.</p>
+            </details>
+
+            <details class="payment-extra" id="payment-extra">
+              <summary>Manual payment or missed income</summary>
+              <button class="btn btn-small btn-outline" id="run-now" type="button" disabled>Review new payment</button>
+              <a class="health-jump" href="#income-trace">Trace or recover an existing income</a>
+            </details>
 
             <div class="contract-links">
               <a id="split-link" href="#" target="_blank" rel="noreferrer">Split contract ↗</a>
@@ -287,7 +307,7 @@
           </article>
 
           <article class="card card-planning">
-            <div class="card-head"><h3>Budget modes &amp; funding goals</h3><span class="pill pill-soft">v7</span></div>
+            <div class="card-head"><h3 id="budget-title" tabindex="-1">Budget modes &amp; funding goals</h3></div>
             <div class="budget-controls">
               <label>Allocation mode<select id="allocation-mode"><option value="0">Waterfall · priority / gross income</option><option value="1">Pro-rata · share of available budget</option></select></label>
               <button type="button" id="save-allocation" class="btn btn-small btn-outline">Save mode</button>
@@ -376,7 +396,7 @@
                 <button id="retry-cancel" class="btn btn-small btn-ghost" type="button" disabled>Cancel this job</button>
               </div>
             </details>
-            <details class="module-section">
+            <details class="module-section" id="native-receiver">
               <summary>Native ETH income address</summary>
               <p id="native-status" class="module-status"></p>
               <p class="module-help">Pay this address with native ETH. It wraps the payment and forwards WETH to the wallet with your WETH income rule.</p>
@@ -432,7 +452,7 @@
 
           <article id="waterfall-activity" class="card card-activity">
             <div class="card-head">
-              <h3>Waterfall runs</h3>
+              <h3 id="activity-heading" tabindex="-1">Waterfall runs</h3>
               <div class="card-head-actions">
                 <button class="link-btn" id="export-csv" type="button">Export CSV</button>
                 <button class="link-btn" id="refresh-activity" type="button">Refresh</button>
@@ -572,6 +592,58 @@
         <span>Testnet only · Not financial advice</span>
       </div>
     </footer>
+
+    <dialog id="wallet-dialog" class="import-dialog" aria-labelledby="wallet-dialog-title">
+      <div class="import-form">
+        <header class="import-head">
+          <h3 id="wallet-dialog-title">Choose a browser wallet</h3>
+          <p>Select the extension you want to use for this workspace.</p>
+        </header>
+        <div id="wallet-options" class="wallet-options"></div>
+        <div class="import-actions"><button class="btn btn-small btn-ghost" id="wallet-cancel" type="button">Close</button></div>
+      </div>
+    </dialog>
+
+    <dialog id="deployment-dialog" class="import-dialog manual-dialog" aria-labelledby="deployment-dialog-title">
+      <form class="import-form" id="deployment-form">
+        <header class="import-head">
+          <h3 id="deployment-dialog-title">Open a testnet workspace</h3>
+          <p>Use a deployment JSON from a source you trust. Contract checks run before the workspace opens. The file stays in this browser tab.</p>
+        </header>
+        <label for="deployment-file">Deployment file</label>
+        <input id="deployment-file" type="file" accept=".json,application/json">
+        <label for="deployment-json">Or paste deployment JSON</label>
+        <textarea id="deployment-json" rows="6" maxlength="64000" spellcheck="false" required></textarea>
+        <p id="deployment-status" class="fineprint" role="status"></p>
+        <div class="import-actions">
+          <button class="btn btn-small btn-ghost" id="deployment-reset" type="button" hidden>Use bundled deployment</button>
+          <button class="btn btn-small btn-ghost" id="deployment-close" type="button">Close</button>
+          <button class="btn btn-small btn-primary" id="deployment-apply" type="submit">Verify and open</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="manual-dialog" class="import-dialog manual-dialog" aria-labelledby="manual-title">
+      <form id="manual-form" class="import-form" novalidate>
+        <header class="import-head">
+          <h3 id="manual-title">Review a new payment</h3>
+          <p id="manual-context"></p>
+        </header>
+        <label for="manual-amount">Income amount to allocate</label>
+        <div class="manual-amount">
+          <input id="manual-amount" type="text" inputmode="decimal" autocomplete="off" aria-describedby="manual-status">
+          <button class="btn btn-small btn-outline" id="manual-preview" type="submit">Preview payment</button>
+        </div>
+        <p id="manual-status" class="fineprint" role="status">Enter an amount to check your saved plan.</p>
+        <ul id="manual-payouts" class="manual-payouts" hidden></ul>
+        <p id="manual-totals" class="manual-totals" hidden></p>
+        <p class="fineprint">Starting a new payment can pay destinations again. To recover a missed transfer, use <a class="health-jump" id="manual-trace" href="#income-trace">Income trace</a>.</p>
+        <div class="import-actions">
+          <button class="btn btn-small btn-ghost" id="manual-close" type="button">Close</button>
+          <button class="btn btn-small btn-primary" id="manual-send" type="button" disabled>Continue to wallet</button>
+        </div>
+      </form>
+    </dialog>
 
     <dialog id="import-dialog" class="import-dialog">
       <form method="dialog" class="import-form">

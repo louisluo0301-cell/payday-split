@@ -1,5 +1,6 @@
 export function createBudgetControls(ctx) {
   const {state,deployment,$,toast} = ctx;
+  let cycleDirty = false;
   function cycleFields(cycle) {
     const select=$('#cycle-duration');
     if(![...select.options].some(o=>o.value===String(cycle.duration))) {
@@ -12,11 +13,14 @@ export function createBudgetControls(ctx) {
     state.draftAllocationMode=plan.allocationMode;
     $('#allocation-mode').value=String(plan.allocationMode);
     cycleFields(plan.cycle);
+    cycleDirty = Number(plan.cycle.duration) !== state.cycleConfig.duration
+      || Number(plan.cycle.anchor) !== state.cycleConfig.anchor;
   }
-  function show() {
-    $('#allocation-mode').value=String(state.allocationMode);
-    state.draftAllocationMode=state.allocationMode;
-    cycleFields(state.cycleConfig);
+  function show(draftMode = null, reset = false) {
+    if (reset) cycleDirty = false;
+    state.draftAllocationMode=draftMode ?? state.allocationMode;
+    $('#allocation-mode').value=String(state.draftAllocationMode);
+    if (!cycleDirty) cycleFields(state.cycleConfig);
     $('#budget-status').textContent=`${state.allocationMode===1?'Pro-rata: shares use the available budget':'Waterfall: priority, percentages of gross income'} · ${state.cycleConfig.duration ? `Automatic ${state.cycleConfig.duration/86400}-day cycles (UTC)` : 'Manual goal cycles'}`;
   }
   async function saveMode() {
@@ -44,10 +48,12 @@ export function createBudgetControls(ctx) {
       if(state.demoMode) {
         const old=state.cycleConfig;
         if(old.duration!==duration || old.anchor!==anchor) state.cycleConfig={anchor,duration,revision:old.revision+1};
+        cycleDirty=false;
       } else {
         if(!state.signer) throw new Error('Connect to configure cycles.');
         state.busy=true;
         await (await state.split.connect(state.signer).setCycleConfig(deployment.token,anchor,duration)).wait();
+        cycleDirty=false;
         await ctx.refresh();
       }
       show();ctx.update();await ctx.planner.preview();toast('Cycle saved. A changed schedule starts fresh progress.');
@@ -58,7 +64,10 @@ export function createBudgetControls(ctx) {
     $('#save-allocation').addEventListener('click',saveMode);
     $('#save-cycle').addEventListener('click',saveCycle);
     $('#allocation-mode').addEventListener('change',()=>{state.draftAllocationMode=Number($('#allocation-mode').value);ctx.update();});
+    for (const id of ['#cycle-duration', '#cycle-anchor']) {
+      $(id).addEventListener('input', () => { cycleDirty = true; });
+    }
     show();
   }
-  return {show,wire,stage};
+  return {show,wire,stage,hasCycleDraft:()=>cycleDirty};
 }

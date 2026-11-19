@@ -1,4 +1,5 @@
 import { BrowserProvider, Contract, ZeroAddress, ZeroHash, dataSlice, formatUnits, getAddress, isHexString, parseUnits, zeroPadValue } from 'ethers';
+import { switchWalletChain, verifyWalletContext } from './wallet-context.js';
 
 export const CCTP_TESTNET = Object.freeze({
   sourceChain: 84532,
@@ -27,6 +28,10 @@ const TRANSMITTER = [
   'function receiveMessage(bytes,bytes) returns(bool)',
 ];
 const { sourceChain, sourceDomain, sourceUsdc, destinationChain, destinationDomain, destinationUsdc, messenger, transmitter, finality } = CCTP_TESTNET;
+const walletNetworks = {
+  [sourceChain]: { chainName: 'Base Sepolia', rpcUrls: ['https://sepolia.base.org'], blockExplorerUrls: ['https://sepolia.basescan.org'] },
+  [destinationChain]: { chainName: 'Ethereum Sepolia', rpcUrls: ['https://ethereum-sepolia-rpc.publicnode.com'], blockExplorerUrls: ['https://sepolia.etherscan.io'] },
+};
 
 export function decodeCollection(message, wallet) {
   if (!isHexString(message, 376)) throw new Error('Expected a standard CCTP V2 burn message.');
@@ -71,7 +76,7 @@ export function selectCollection(payload, wallet) {
   return matches[0];
 }
 
-export function wireCctpCollection({ $, deployment, demoMode, isWalletBusy = () => false, setWalletBusy = () => {} }) {
+export function wireCctpCollection({ $, deployment, demoMode, chooseWallet, isWalletBusy = () => false, setWalletBusy = () => {} }) {
   const status = $('#bridge-status');
   const hashInput = $('#bridge-hash');
   const enabled = !demoMode && Number(deployment.chainId) === destinationChain
@@ -90,7 +95,7 @@ export function wireCctpCollection({ $, deployment, demoMode, isWalletBusy = () 
     try { sessionStorage.setItem(hashKey, hash); } catch {}
   }
   let running = false;
-  async function action(work) {
+  async function action(chain, work) {
     if (running) return;
     if (isWalletBusy()) {
       status.textContent = 'Finish the current wallet action before using the bridge.';
@@ -101,10 +106,18 @@ export function wireCctpCollection({ $, deployment, demoMode, isWalletBusy = () 
     actions.forEach(button => { button.disabled = true; });
     let provider;
     try {
-      if (!window.ethereum) throw new Error('Connect a browser wallet to use the testnet bridge.');
-      provider = new BrowserProvider(window.ethereum);
-      await provider.send('eth_requestAccounts', []);
-      const signer = await provider.getSigner();
+      const injected = await chooseWallet();
+      if (!injected) { status.textContent = 'Choose a browser wallet to use the testnet bridge.'; return; }
+      const initial = await injected.request({ method: 'eth_requestAccounts' });
+      if (!initial?.[0]) throw new Error('Select an account in your wallet.');
+      const network = walletNetworks[chain];
+      status.textContent = 'Confirm ' + network.chainName + ' in your wallet.';
+      await switchWalletChain(injected, chain, {
+        ...network, chainId: '0x' + chain.toString(16), nativeCurrency: { name: 'Sepolia Ether', symbol: 'ETH', decimals: 18 },
+      });
+      const account = await verifyWalletContext(injected, chain, initial[0]);
+      provider = new BrowserProvider(injected, chain);
+      const signer = await provider.getSigner(account);
       await work(provider, signer);
     } catch (error) {
       status.textContent = error.code === 'ACTION_REJECTED' ? 'Wallet request cancelled.' : error.shortMessage || error.message;
@@ -122,7 +135,7 @@ export function wireCctpCollection({ $, deployment, demoMode, isWalletBusy = () 
     }
   }
 
-  $('#bridge-burn').addEventListener('click', () => action(async (provider, signer) => {
+  $('#bridge-burn').addEventListener('click', () => action(sourceChain, async (provider, signer) => {
     await assertWallet(provider, signer, sourceChain, 'Base Sepolia');
     const amount = parseUnits($('#bridge-amount').value, 6);
     const maxFee = parseUnits($('#bridge-max-fee').value || '0', 6);
@@ -154,10 +167,10 @@ export function wireCctpCollection({ $, deployment, demoMode, isWalletBusy = () 
     const tx = await cctp.depositForBurn(...burnArgs);
     localHash(tx.hash);
     await tx.wait();
-    status.textContent = 'Burn confirmed. Keep the hash and switch to Sepolia to check the attestation and mint.';
+    status.textContent = 'Burn confirmed. Use Check and mint to switch to Ethereum Sepolia and look up the attestation.';
   }));
 
-  $('#bridge-revoke').addEventListener('click', () => action(async (provider, signer) => {
+  $('#bridge-revoke').addEventListener('click', () => action(sourceChain, async (provider, signer) => {
     await assertWallet(provider, signer, sourceChain, 'Base Sepolia');
     const asset = new Contract(sourceUsdc, ERC20, signer);
     if (await asset.allowance(signer.address, messenger) === 0n) {
@@ -169,7 +182,7 @@ export function wireCctpCollection({ $, deployment, demoMode, isWalletBusy = () 
     status.textContent = 'Base Sepolia Circle approval revoked.';
   }));
 
-  $('#bridge-mint').addEventListener('click', () => action(async (provider, signer) => {
+  $('#bridge-mint').addEventListener('click', () => action(destinationChain, async (provider, signer) => {
     await assertWallet(provider, signer, destinationChain, 'Ethereum Sepolia');
     const hash = hashInput.value.trim();
     if (!isHexString(hash, 32) || hash === ZeroHash) throw new Error('Enter the Base Sepolia burn transaction hash.');
