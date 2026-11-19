@@ -265,6 +265,8 @@
                 <div class="step-body">
                   <b id="faucet-title">Claim a demo income</b>
                   <span id="faucet-note">Connect your wallet to see how to receive this asset.</span>
+                  <span id="faucet-progress" class="income-progress" role="status"></span>
+                  <button id="faucet-trace" class="link-btn" type="button" hidden>Trace this income</button>
                 </div>
                 <button class="btn btn-small btn-ink" id="faucet-btn" type="button" disabled>Claim</button>
               </div>
@@ -287,7 +289,7 @@
                 <label>Maximum per run<input id="policy-maxPerRun" type="number" min="0" step="any" value="0"></label>
                 <label>Maximum per UTC day<input id="policy-dailyLimit" type="number" min="0" step="any" value="0"></label>
                 <label>Minimum income<input id="policy-minIncome" type="number" min="0" step="any" value="0"></label>
-                <label>Valid until (your local time)<input id="policy-expiry" type="datetime-local"></label>
+                <label>Valid until (your local time)<input id="policy-expiry" type="datetime-local" step="1"></label>
               </div>
               <label class="policy-pause"><input id="policy-paused" type="checkbox"> Pause after saving</label>
               <button class="btn btn-small btn-outline" id="save-policy" type="button">Save spending controls</button>

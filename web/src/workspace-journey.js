@@ -1,7 +1,7 @@
 const spendingAlerts = new Set(['plan-paused', 'expired', 'daily-limit']);
 
 export function workspaceJourney({ demo, configured, invalidAsset, hasWallet, connected, connecting,
-  savedActive, dirty, policyDirty, modeDirty, allowance, report, symbol, network, nativeReceiver, demoToken, faucetReady }) {
+  savedActive, dirty, policyDirty, modeDirty, allowance, report, symbol, network, nativeReceiver, demoToken, faucetReady, syncStatus }) {
   const scope = demo ? 'Interactive demo' : network + ' · ' + symbol;
   const next = (tone, title, note, action, label) => ({ scope, tone, title, note, action, label });
   if (demo) return next('demo', 'Try a sample income',
@@ -16,6 +16,10 @@ export function workspaceJourney({ demo, configured, invalidAsset, hasWallet, co
     'Use the demo now, or reopen this page in a browser with an Ethereum wallet to use this testnet.', 'demo', 'Open interactive demo');
   if (!connected) return next('neutral', 'Connect to see your plan',
     'Connect the wallet that receives your income. Connecting does not approve payments.', 'connect', 'Connect wallet');
+  if (syncStatus === 'reading') return next('neutral', 'Reading your onchain plan',
+    'Checking balance, allowance and saved settings from the same block.');
+  if (syncStatus === 'unavailable') return next('warning', 'Refresh your onchain plan',
+    'The latest wallet data is unavailable. Check your connection before making changes.', 'refresh', 'Refresh plan');
   if (dirty) return next('warning', 'Save your destination changes',
     'The last saved destinations still apply onchain. Review your draft before saving.', 'plan', 'Review destinations');
   if (savedActive === null) return next('neutral', 'Read your saved plan',

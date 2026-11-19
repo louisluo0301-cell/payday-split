@@ -1,6 +1,7 @@
 import { AbiCoder, Interface, keccak256, toBeHex } from 'ethers';
+import { TOKEN_ABI } from './contract-abi.generated.js';
 
-const transfer = new Interface(['event Transfer(address indexed from,address indexed to,uint256 value)']);
+const transfer = new Interface(TOKEN_ABI);
 const transferTopic = transfer.getEvent('Transfer').topicHash;
 const coder = AbiCoder.defaultAbiCoder();
 

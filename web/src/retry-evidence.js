@@ -1,12 +1,6 @@
 import { Contract } from 'ethers';
+import { RETRY_QUEUE_ABI } from './contract-abi.generated.js';
 
-export const RETRY_QUEUE_ABI = [
-  'function retryPending(address,address) view returns(uint256)',
-  'function retryJob(uint256) view returns(tuple(tuple(address user,address token,uint256 version,uint256 txHash,uint256 logIndex,uint256 gross) origin,uint256 epoch,uint64 period,uint64 due,uint96 amount,uint8 bucketIndex,uint8 attempts))',
-  'function retryQueueLength() view returns(uint256)',
-  'event RetryQueued(address indexed user,address indexed token,uint256 indexed id,uint256 originTxHash,uint256 logIndex,uint256 bucketIndex,uint256 amount,uint256 due)',
-  'event RetryClosed(address indexed user,address indexed token,uint256 indexed id,uint8 result,uint256 amount)',
-];
 
 export function reconcileRetryEvents(queued, closed, income, payout) {
   const origin = BigInt(income.hash);

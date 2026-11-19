@@ -19,6 +19,7 @@
 - **v9 收款与资金模块**：失败桶自动重试、原生 ETH 收款、Aave V3 储蓄、消费冷静期、Circle CCTP V2 测试 USDC 归集。[启用方法与验收](docs/income-modules/README.md)。
 - **v9 工作台优化**：同一部署切换 USDC 和 WETH，连接时核对钱包和链，原收入凭证自动对账补付结果，CSV 保留完整金额精度。[使用说明与本地验收](docs/workspace/README.md)。
 - **网页操作入口**：在工作台选择钱包、打开已有的测试网部署、设置授权并预演付款。网络切换由页面发起，交易在钱包确认。[网页操作与截图](docs/workspace/README.md)。
+- **前端与合约同步**：前端和本地回调监听使用 Solidity 编译生成的接口。交易确认后从包含该交易的区块刷新余额、额度与已保存规则。[本地双钱包验收](docs/workspace/README.md)。
 - **当前进度**：独立监听作业已在真实测试网验证。PaydaySplit 核心的真实回调分账部署与外部审计暂缓。
 
 ![PaydaySplit demo](docs/demo-preview.gif)
@@ -35,7 +36,7 @@
 
 **PaydaySplit is a non-custodial income waterfall.** Every payment in a configured ERC-20 is routed by priority in one Reactive callback: the default preset puts fixed bills first (rent, salaries), then percentage buckets (tax, savings, bonus), and the remainder stays in the wallet. Up to 8 buckets, versioned rules, per-bucket failure isolation, and a manual recovery path.
 
-- **106 Foundry tests** and **50 frontend tests**, covering allocation, replay, budgets, diagnostics, receipt-based recovery, wallet and deployment selection, and payment review.
+- **106 Foundry tests** and **53 frontend tests**, covering allocation, replay, budgets, diagnostics, receipt-based recovery, wallet and deployment selection, and payment review.
 - **Local Anvil full loop is verified** — see `deployments/31337.evidence.json`; the **PaydaySplit core testnet callback/payout remains pending**. The independent camp observer has separate real testnet evidence.
 - **No-wallet demo:** `cd web && npm install && npm run dev`, then open `/?demo=1`.
 - **Local full loop:** `pwsh ./script/local-demo.ps1`; run `npm run local:watch` in `web/` for ongoing callbacks. Use `-Port` for a separate instance or `-Reset` to clear a disposable Anvil.
@@ -44,7 +45,7 @@
 
 | Evidence | Status |
 |---|---|
-| Contracts: 106 tests; frontend: 50 tests | ✅ local; CI workflow included |
+| Contracts: 106 tests; frontend: 53 tests | ✅ local; CI workflow included |
 | Local Anvil end-to-end (Transfer → react → callback → Split/Retained) | ✅ verified |
 | Demo mode / judge quick path | ✅ `?demo=1` |
 | PaydaySplit core Sepolia + Lasna deployment | ⏳ callback/payout verification pending (see `docs/REMAINING_TASKS.md`) |

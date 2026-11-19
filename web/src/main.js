@@ -8,6 +8,7 @@ import {
   getAddress,
   parseUnits,
 } from "ethers";
+import { SPLIT_ABI, TOKEN_ABI, REACTIVE_ABI } from "./contract-abi.generated.js";
 import { calculateRun } from "./waterfall.js";
 import { createPlanning } from "./planning.js";
 import { createBudgetControls } from "./budget-controls.js";
@@ -25,6 +26,7 @@ import { workspaceJourney } from "./workspace-journey.js";
 import { createManualPayment, paymentQuoteKey } from "./manual-payment.js";
 import { createBrowserWallet } from "./browser-wallet.js";
 import { DEPLOYMENT_SESSION, parseTestnetDeployment, wireTestnetDeployment } from "./browser-deployment.js";
+import { readFaucet, readWalletSnapshot } from "./wallet-snapshot.js";
 
 let demoPolicy = {};
 let demoSpent = 0n;
@@ -57,44 +59,34 @@ async function savePolicy() {
       return;
     }
     if (!state.signer) { toast("Connect your wallet to save controls.", true); return; }
+    if (state.syncStatus !== "ready") throw new Error("Refresh the onchain plan before changing its controls.");
     state.busy = true;
+    $("#spending-controls").inert = true;
     const { signer, split } = state;
     const tx = await split.connect(signer).setPolicy(deployment.token, policy);
-    await tx.wait();
+    const receipt = await tx.wait();
     if (signer !== state.signer) return;
     policyDirty = false;
     lastHealth = null;
     renderWorkspace();
-    await loadPolicy();
-    await planner.preview();
-    loadReactiveStatus();
+    await refreshAll({ afterBlock: receipt.blockNumber });
     toast("Spending controls confirmed onchain.", false, tx.hash);
   } catch (err) { toast(humanError(err), true); }
-  finally { state.busy = false; }
+  finally { state.busy = false; $("#spending-controls").inert = false; }
 }
 
-async function loadPolicy() {
-  const {account, signer, split}=state;
-  if (!signer || !split) return;
-  try {
-    const [policy, [day, amount]] = await Promise.all([
-      split.policies(account, deployment.token), split.dailySpend(account, deployment.token)
-    ]);
-    if(signer!==state.signer) return;
-    // Avoid overwriting fields while the user is editing.
-    if (!policyDirty && !document.activeElement?.id?.startsWith("policy-")) {
-      for (const key of ["reserve", "maxPerRun", "dailyLimit", "minIncome"]) {
-        document.querySelector(`#policy-${key}`).value = formatUnits(policy[key], state.decimals);
-      }
-      document.querySelector("#policy-paused").checked = policy.paused;
-      const date = policy.validUntil > 0n ? new Date(Number(policy.validUntil) * 1000) : null;
-      document.querySelector("#policy-expiry").value = date ? new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0,16) : "";
+function applyPolicy({ policy, dailySpend: [day, amount], timestamp }) {
+  if (!policyDirty) {
+    for (const key of ["reserve", "maxPerRun", "dailyLimit", "minIncome"]) {
+      $("#policy-" + key).value = formatUnits(policy[key], state.decimals);
     }
-    const spent = Number(day) === Math.floor(Date.now() / 86400000) ? amount : 0n;
-    document.querySelector("#policy-status").textContent = `Onchain controls loaded · spent today: ${formatUnits(spent, state.decimals)} ${state.symbol}${policy.paused ? " · PAUSED" : ""}`;
-  } catch {
-    if(signer===state.signer) document.querySelector("#policy-status").textContent = "Controls could not be read. Check the configured contract and RPC.";
+    $("#policy-paused").checked = policy.paused;
+    const date = policy.validUntil > 0n ? new Date(Number(policy.validUntil) * 1000) : null;
+    $("#policy-expiry").value = date ? new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0,19) : "";
   }
+  const spent = Number(day) === Math.floor(timestamp / 86400) ? amount : 0n;
+  setText("policy-status", "Onchain controls loaded · spent today: " + formatUnits(spent, state.decimals) + " " + state.symbol
+    + (policy.paused ? " · PAUSED" : ""));
 }
 
 /* ------------------------------------------------------------------ */
@@ -105,61 +97,8 @@ const $ = (sel) => document.querySelector(sel);
 const ZERO = "0x0000000000000000000000000000000000000000";
 const MAX_BUCKETS = 8;
 
-const SPLIT_ABI = [
-  "function getBuckets(address user, address token) view returns (tuple(address payee, uint96 fixedAmount, uint16 bps, bool active)[])",
-  "function setBuckets(address token, tuple(address payee, uint96 fixedAmount, uint16 bps, bool active)[] buckets)",
-  "function disableAll(address token)",
-  "function runSplit(address token, uint256 paycheck)",
-  "function recoverSplit(address token,uint256 paycheck,uint256 originTxHash,uint256 logIndex)",
-  "function processed(bytes32 key) view returns (bool)",
-  "function retryQueue() view returns(address)",
-  "function retryEnabled(address,address) view returns(bool)",
-  "function setRetryEnabled(address,bool)",
-  "function cancelRetry(uint256)",
-  "function processRetries()",
-  "function savingsBucket(address,address) view returns(address)",
-  "function setSavingsBucket(address,address)",
-  "function previewWaterfall(address user, address token, uint256 paycheck) view returns (address[] payees, uint256[] amounts, uint256 retained)",
-  "function bucketCount(address user, address token) view returns (uint256)",
-  "function ruleVersion(address user, address token) view returns (uint256)",
-  "function reactive() view returns (address)",
-  "function setPolicy(address token, tuple(uint96 reserve,uint96 maxPerRun,uint96 dailyLimit,uint96 minIncome,uint64 validUntil,bool paused) policy)",
-  "function policies(address user,address token) view returns (uint96 reserve,uint96 maxPerRun,uint96 dailyLimit,uint96 minIncome,uint64 validUntil,bool paused)",
-  "function dailySpend(address user,address token) view returns (uint256 day,uint256 amount)",
-  "function setBucketGoal(address token,uint256 index,uint256 expectedVersion,uint96 target,bool newCycle)",
-  "function getBucketIds(address user,address token) view returns (uint64[])",
-  "function setBucketsWithIds(address token,tuple(address payee,uint96 fixedAmount,uint16 bps,bool active)[] buckets,uint64[] ids)",
-  "function allocationModes(address user,address token) view returns(uint8)",
-  "function setAllocationMode(address token,uint8 mode)",
-  "function cycleConfigs(address user,address token) view returns(uint64 anchor,uint32 duration,uint32 revision)",
-  "function setCycleConfig(address token,uint64 anchor,uint32 duration)",
-  "function bucketGoals(address user,address token,uint256 version,uint256 index) view returns (uint96 target,uint96 paid,uint64 cycle)",
-  "function previewExecution(address user,address token,uint256 paycheck) view returns (uint256[] amounts,uint256 retained,uint8 blocked)",
-  "event BucketsSet(address indexed user, address indexed token, uint256 indexed version, address[] payees, uint96[] fixedAmounts, uint16[] bps, bool[] active)",
-  "event Split(address indexed user, address indexed token, address indexed payee, uint256 paycheck, uint256 amount, uint256 bucketIndex, uint256 version, uint256 originTxHash, uint256 logIndex)",
-  "event Retained(address indexed user, address indexed token, uint256 amount, uint256 version, uint256 originTxHash, uint256 logIndex)",
-  "event BucketSkipped(address indexed user, address indexed token, uint256 bucketIndex, uint256 paycheck, uint256 requested, uint8 reason, uint256 version, uint256 originTxHash, uint256 logIndex)",
-];
 
-const TOKEN_ABI = [
-  "function symbol() view returns (string)",
-  "function decimals() view returns (uint8)",
-  "function balanceOf(address) view returns (uint256)",
-  "function allowance(address owner, address spender) view returns (uint256)",
-  "function approve(address spender, uint256 amount) returns (bool)",
-  "function faucet()",
-  "function lastFaucetAt(address) view returns (uint256)",
-  "function FAUCET_AMOUNT() view returns (uint256)",
-];
 
-const REACTIVE_ABI = [
-  "function remaining() view returns (uint256)",
-  "function paused() view returns (bool)",
-  "function getRule(address user, address token) view returns (address[] payees, uint96[] fixedAmounts, uint16[] bps, bool[] active, uint256 version, bool subscribed)",
-  "function userRemaining(address user, address token) view returns (uint256)",
-  "function seen(bytes32 key) view returns (bool)",
-  "event Seen(address indexed user,address indexed token,uint256 amount,uint256 originTxHash,uint256 logIndex)",
-];
 
 let deployment = {
   chainId: 11155111,
@@ -268,10 +207,11 @@ const state = {
   activityError: false,
   demoToken: false,
   nextFaucetAt: 0,
+  latestIncome: null,
   faucetAmount: 0n,
   busy: false,
   dirty: false,
-  pollingSplit: false,
+  syncStatus: "idle",
   samplePaycheck: defaultSample,
   allocationMode: 0,
   draftAllocationMode: 0,
@@ -294,7 +234,7 @@ const planner = createPlanning({
     for (const key of ["reserve","maxPerRun","dailyLimit","minIncome"]) $(`#policy-${key}`).value = policy[key];
     $("#policy-paused").checked = policy.paused;
     const date = BigInt(policy.validUntil) > 0n ? new Date(Number(policy.validUntil) * 1000) : null;
-    $("#policy-expiry").value = date ? new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0,16) : "";
+    $("#policy-expiry").value = date ? new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0,19) : "";
     policyDirty = true;
   },
 });
@@ -308,10 +248,13 @@ const incomeModules = createIncomeModules({
   $, toast,
   context: () => ({ ...incomeTraceContext(), deployment, reactiveChainId: useLocal ? 31337 : 5318007, busy: state.busy }),
   setWalletBusy: value => { state.busy = value; },
+  refreshWorkspace: refreshAll,
   stageBucket: stageModuleBucket,
 });
 let healthReadId = 0;
 let activityReadId = 0;
+let walletReadId = 0;
+let walletBlockFloor = 0;
 let connectReadId = 0;
 let connecting = false;
 let lastHealth = null;
@@ -398,10 +341,14 @@ function jumpTo(selector) {
 
 function renderWorkspace() {
   const reportedVersion = lastHealth?.snapshot?.ruleVersion;
-  const report = reportedVersion === undefined || reportedVersion === BigInt(state.ruleVersion) ? lastHealth : null;
+  const reportedAllowance = lastHealth?.snapshot?.allowance;
+  const matchesSavedPlan = (reportedVersion === undefined || reportedVersion === BigInt(state.ruleVersion))
+    && (reportedAllowance === undefined || reportedAllowance === state.allowance);
+  const report = state.syncStatus === 'ready' && matchesSavedPlan ? lastHealth : null;
   const connected = !!state.signer;
   const next = workspaceJourney({
     demo: state.demoMode, configured, invalidAsset: assetProfile.invalid, hasWallet: browserWallet.hasWallet(),
+    syncStatus: state.syncStatus,
     connected, connecting, savedActive: state.savedActive, dirty: state.dirty, policyDirty,
     modeDirty: state.draftAllocationMode !== state.allocationMode, allowance: state.allowance,
     report, symbol: state.symbol, network: networkName(), nativeReceiver: wrappedAsset && !!deployment.modules.factory,
@@ -423,7 +370,7 @@ function renderWorkspace() {
   setText('workspace-allowance', state.savedActive === null ? 'Checking'
     : state.allowance === 0n ? 'Required' : state.allowance === MaxUint256 ? 'Unlimited' : 'Set');
   setText('workspace-health', { ready: 'Verified', blocked: 'Blocked', attention: 'Needs attention', inactive: 'Inactive' }[report?.status] ?? 'Check needed');
-  $('#run-now').disabled = !state.demoMode && (!connected || !state.savedActive || state.dirty);
+  $('#run-now').disabled = !state.demoMode && (!connected || state.syncStatus !== 'ready' || !state.savedActive || state.dirty);
 }
 
 async function runWorkspaceAction() {
@@ -708,6 +655,8 @@ function disconnect() {
   ++connectReadId;
   ++healthReadId;
   ++activityReadId;
+  ++walletReadId;
+  walletBlockFloor = 0;
   connecting = false;
   stopWalletEvents();
   stopWalletEvents = () => {};
@@ -727,10 +676,14 @@ function disconnect() {
   state.split = null;
   state.balance = 0n;
   state.allowance = 0n;
+  state.syncStatus = "idle";
   state.labels = loadLabels(null);
   state.demoToken = false;
   state.faucetAmount = 0n;
   state.nextFaucetAt = 0;
+  state.latestIncome = null;
+  setText("faucet-progress", "");
+  $("#faucet-trace").hidden = true;
   state.buckets = clonePreset("freelancer");
   state.ruleVersion = 0;
   state.allocationMode = 0;
@@ -762,100 +715,66 @@ function disconnect() {
 /* Reads                                                               */
 /* ------------------------------------------------------------------ */
 
-async function loadRule() {
-  if (!state.split || !state.account) return;
-
-  const { account, signer, split } = state;
-  try {
-    const [raw, version, ids, mode, cycle] = await Promise.all([
-      split.getBuckets(account, deployment.token),
-      split.ruleVersion(account, deployment.token),
-      split.getBucketIds(account, deployment.token),
-      split.allocationModes(account, deployment.token),
-      split.cycleConfigs(account, deployment.token),
-    ]);
-    if (signer !== state.signer) return;
-    const draftMode = state.draftAllocationMode !== state.allocationMode ? state.draftAllocationMode : null;
-    state.ruleVersion = Number(version);
-    state.allocationMode = Number(mode);
-    state.cycleConfig = {anchor:Number(cycle.anchor),duration:Number(cycle.duration),revision:Number(cycle.revision)};
-    budgetControls.show(draftMode);
-    state.onchainBucketCount = raw.length;
-    state.savedActive = raw.filter(bucket => bucket.active).length;
-    if (state.dirty) { updateSummary(); return; }
-
-    if (raw.length > 0) {
-      state.buckets = raw.map((bucket, i) => ({
-        id: String(ids[i]), identityPayee: bucket.payee.toLowerCase(),
-        label: state.labels[bucket.payee.toLowerCase()] || LABELS[bucket.payee.toLowerCase()] || "",
-        payee: bucket.payee,
-        fixed: formatUnits(bucket.fixedAmount, state.decimals),
-        bps: Number(bucket.bps) > 0 ? String(Number(bucket.bps) / 100) : "",
-        active: bucket.active,
-      }));
-    } else if (!state.buckets.length) {
-      state.buckets = clonePreset("freelancer");
-    }
-    state.dirty = false;
+function applyWalletSnapshot(snapshot) {
+  const draftMode = state.draftAllocationMode !== state.allocationMode ? state.draftAllocationMode : null;
+  const { balance, allowance, buckets, version, ids, allocationMode, cycle } = snapshot;
+  Object.assign(state, { balance, allowance, ruleVersion: Number(version), allocationMode: Number(allocationMode),
+    cycleConfig: {anchor:Number(cycle.anchor),duration:Number(cycle.duration),revision:Number(cycle.revision)},
+    onchainBucketCount: buckets.length, savedActive: buckets.filter(bucket => bucket.active).length });
+  budgetControls.show(draftMode);
+  if (!state.dirty) {
+    state.buckets = buckets.map((bucket, i) => ({
+      id: String(ids[i]), identityPayee: bucket.payee.toLowerCase(),
+      label: state.labels[bucket.payee.toLowerCase()] || LABELS[bucket.payee.toLowerCase()] || "",
+      payee: bucket.payee, fixed: formatUnits(bucket.fixedAmount, state.decimals),
+      bps: Number(bucket.bps) > 0 ? String(Number(bucket.bps) / 100) : "", active: bucket.active,
+    }));
+    if (!state.buckets.length) state.buckets = clonePreset("freelancer");
     renderBuckets();
-    updateSummary();
-  } catch (err) {
-    if (signer === state.signer) toast(humanError(err), true);
   }
+  applyPolicy(snapshot);
 }
 
-async function refreshAll() {
-  if (!state.account || !configured) {
-    renderDisconnected();
-    loadReactiveStatus();
-    return;
-  }
-
-  const { account, signer } = state;
+async function refreshAll({ afterBlock } = {}) {
+  const { account, signer, token, split, provider } = state;
+  if (!signer || !configured) return;
+  const request = ++walletReadId;
+  if (afterBlock !== undefined) walletBlockFloor = Math.max(walletBlockFloor, afterBlock);
+  const isCurrent = () => request === walletReadId && signer === state.signer;
+  state.syncStatus = "reading";
+  renderWorkspace();
   try {
-    const [balance, allowance] = await Promise.all([
-      state.token.balanceOf(state.account),
-      state.token.allowance(state.account, deployment.split),
-    ]);
-    if(signer !== state.signer) return;
-    state.balance = balance;
-    state.allowance = allowance;
-    state.demoToken = state.symbol === "dUSDC";
-
-    if (state.demoToken) {
-      try {
-        const [last, amount] = await Promise.all([
-          state.token.lastFaucetAt(account),
-          state.token.FAUCET_AMOUNT(),
-        ]);
-        if (signer !== state.signer) return;
-        state.nextFaucetAt = Number(last) + 3600;
-        state.faucetAmount = amount;
-      } catch {
-        if (signer === state.signer) state.nextFaucetAt = 0;
-      }
-    }
-
-    if (signer !== state.signer) return;
-    await loadRule();
-    if (signer !== state.signer) return;
+    const snapshot = await readWalletSnapshot({ provider, account, token, split, tokenAddress: deployment.token,
+      splitAddress: deployment.split }, walletBlockFloor);
+    if (!isCurrent()) return;
+    const faucet = state.symbol === "dUSDC" ? await readFaucet(token, account, snapshot.at) : null;
+    if (!isCurrent()) return;
+    applyWalletSnapshot(snapshot);
+    walletBlockFloor = Number(snapshot.at.blockTag);
+    Object.assign(state, { demoToken: Boolean(faucet), faucetAmount: faucet?.amount ?? 0n, nextFaucetAt: faucet?.next ?? 0,
+      syncStatus: "ready" });
+    lastHealth = null;
     renderConnected();
     loadReactiveStatus();
-    await Promise.all([loadActivity(), loadPolicy(), planner.load()]);
-    if (signer === state.signer) await planner.preview();
-  } catch (err) {
-    if (signer === state.signer) toast(humanError(err), true);
+    await Promise.all([loadActivity({ head: snapshot.at.blockTag }), planner.load(snapshot.at)]);
+    if (isCurrent()) await planner.preview(snapshot.at);
+  } catch (error) {
+    if (!isCurrent()) return;
+    state.syncStatus = "unavailable";
+    renderWorkspace();
+    setText("policy-status", "Can’t verify the latest saved controls. Refresh the plan.");
+    toast(humanError(error), true);
   }
 }
 
-async function loadActivity() {
+async function loadActivity({ head: blockTag, publish = true } = {}) {
   const { split, account, provider } = state;
   if (!split || !account) return [];
-  const request = ++activityReadId;
-  const isCurrent = () => request === activityReadId && account === state.account && provider === state.provider;
+  const request = publish ? ++activityReadId : null;
+  const isCurrent = () => publish && request === activityReadId && account === state.account && provider === state.provider;
 
   try {
-    const head = Number(await provider.send("eth_blockNumber", []));
+    const head = Number(blockTag ?? await provider.send("eth_blockNumber", []));
     const fromBlock = Math.max(0, head - 5000);
     const token = deployment.token;
     const [splits, retained, skipped] = await Promise.all([
@@ -969,10 +888,10 @@ async function recoverIncome(ctx, income) {
     if (BigInt(network) !== BigInt(ctx.chainId) || accounts[0]?.toLowerCase() !== ctx.account.toLowerCase()
       || ctx.signer !== state.signer) throw new Error("The wallet or network changed. Inspect the income again.");
     const tx = await ctx.split.connect(ctx.signer).recoverSplit(ctx.token, income.amount, BigInt(income.hash), income.logIndex);
-    await tx.wait();
+    const receipt = await tx.wait();
     if (ctx.account === state.account && ctx.signer === state.signer) {
       toast("Recovery transaction confirmed. Check the destination result for the payout.", false, tx.hash);
-      await refreshAll();
+      await refreshAll({ afterBlock: receipt.blockNumber });
     }
   } finally {
     state.busy = false;
@@ -1221,8 +1140,7 @@ function renderAllowance() {
     ? 'Allowance: ' + formatUnits(state.allowance, state.decimals) : "Allowance —";
   $('#revoke-allowance').disabled = !approved;
   renderWorkspace();
-  planner.preview();
-  if(state.demoMode)loadReactiveStatus();
+  if (state.demoMode) { planner.preview(); loadReactiveStatus(); }
 }
 
 function renderFaucet() {
@@ -1659,6 +1577,7 @@ async function saveRule(event) {
     return;
   }
   if (state.busy) return;
+  if (state.syncStatus !== "ready") { toast("Refresh the onchain plan first.", true); return; }
   clearRuleError();
 
   let buckets;
@@ -1686,12 +1605,12 @@ async function saveRule(event) {
     const tx = await split.connect(signer).setBucketsWithIds(deployment.token, buckets, ids);
     clearRuleError();
     toast("Destination changes submitted.", false, tx.hash);
-    await tx.wait();
+    const receipt = await tx.wait();
     if (signer !== state.signer) return;
     rememberLabels();
     state.dirty = false;
     lastHealth = null;
-    await refreshAll();
+    await refreshAll({ afterBlock: receipt.blockNumber });
     toast("Destinations saved. Check automation before receiving income.", false, tx.hash);
   } catch (err) {
     toast(humanError(err), true);
@@ -1720,10 +1639,11 @@ async function approve() {
     return;
   }
   if (!state.signer || state.busy) return;
+  if (state.syncStatus !== "ready") { toast("Refresh the onchain plan before approving.", true); return; }
   state.busy = true;
   const button = $("#approve-btn");
   const { token, account, signer } = state;
-  let cleared = false;
+  let clearReceipt;
   setBusy(button, "Approving…", true);
   try {
     const amount = readAllowanceAmount();
@@ -1733,21 +1653,21 @@ async function approve() {
     if (state.allowance > 0n) {
       toast("Your wallet will ask to clear the current allowance, then approve the new amount.");
       const reset = await token.connect(signer).approve(deployment.split, 0);
-      await reset.wait();
-      cleared = true;
+      clearReceipt = await reset.wait();
+      if (signer !== state.signer) return;
       await verifyWalletContext(state.injected, chainId, account);
       if (signer !== state.signer) return;
     }
     const tx = await token.connect(signer).approve(deployment.split, amount);
-    await tx.wait();
+    const receipt = await tx.wait();
     if (signer !== state.signer) return;
     lastHealth = null;
     toast("Allowance confirmed.", false, tx.hash);
-    await refreshAll();
+    await refreshAll({ afterBlock: receipt.blockNumber });
   } catch (err) {
     if (signer === state.signer) {
-      if (cleared) await refreshAll();
-      toast(cleared ? "The old allowance was cleared. " + humanError(err) : humanError(err), true);
+      if (clearReceipt) await refreshAll({ afterBlock: clearReceipt.blockNumber });
+      toast(clearReceipt ? "The old allowance was cleared. " + humanError(err) : humanError(err), true);
     }
   } finally {
     state.busy = false;
@@ -1815,10 +1735,10 @@ async function pauseAll() {
     await verifyWalletContext(state.injected, chainId, account);
     if (signer !== state.signer || !buckets.length) return;
     const tx = await split.connect(signer).setBuckets(deployment.token, buckets);
-    await tx.wait();
+    const receipt = await tx.wait();
     if (signer !== state.signer) return;
     lastHealth = null;
-    await refreshAll();
+    await refreshAll({ afterBlock: receipt.blockNumber });
     toast("Saved destinations paused. Any draft remains in the editor.", false, tx.hash);
   } catch (err) {
     toast(humanError(err), true);
@@ -1841,11 +1761,11 @@ async function revokeAllowance() {
   const { signer } = state;
   try {
     const tx = await state.token.connect(signer).approve(deployment.split, 0);
-    await tx.wait();
+    const receipt = await tx.wait();
     if (signer !== state.signer) return;
     lastHealth = null;
     toast("Allowance revoked. The plan cannot spend this asset.", false, tx.hash);
-    await refreshAll();
+    await refreshAll({ afterBlock: receipt.blockNumber });
   } catch (err) {
     toast(humanError(err), true);
   } finally {
@@ -1855,7 +1775,7 @@ async function revokeAllowance() {
 
 function runNow() {
   if (state.demoMode) { runDemoIncome(); return; }
-  if (!state.signer || state.busy || state.dirty || !state.savedActive) return;
+  if (!state.signer || state.busy || state.syncStatus !== "ready" || state.dirty || !state.savedActive) return;
   manualPayment.open($("#sample-input").value);
 }
 
@@ -1889,10 +1809,10 @@ async function submitManualPayment({ ctx, amount, quote }, isCurrent) {
     }
     const tx = await ctx.split.connect(ctx.signer).runSplit(ctx.token, amount);
     toast("New payment submitted.", false, tx.hash);
-    await tx.wait();
+    const receipt = await tx.wait();
     if (isCurrent(ctx)) {
       toast("Payment confirmed. Review the actual payout in History.", false, tx.hash);
-      await refreshAll();
+      await refreshAll({ afterBlock: receipt.blockNumber });
     }
   } finally {
     state.busy = false;
@@ -1904,49 +1824,47 @@ async function claim() {
     runDemoIncome();
     return;
   }
-  if (!state.signer || state.busy || !state.demoToken) return;
+  if (!state.signer || state.busy || !state.demoToken || state.syncStatus !== "ready") return;
   state.busy = true;
   const button = $("#faucet-btn");
-  const account = state.account;
+  const { account, signer, token } = state;
   setBusy(button, "Claiming…", true);
 
   try {
-    const tx = await state.token.connect(state.signer).faucet();
-    toast("Income claimed. Reactive is watching the Transfer event…", false, tx.hash);
+    const tx = await token.connect(signer).faucet();
+    toast("Test income submitted. Waiting for confirmation…", false, tx.hash);
     const receipt = await tx.wait();
-    if (account !== state.account) return;
+    if (signer !== state.signer) return;
     const [income] = incomeTransfers(receipt, receipt.hash.toLowerCase(), account, deployment.token);
-    await sleep(4000);
-    await pollForSplit(income, account);
+    const tracked = { signer, income };
+    state.latestIncome = tracked;
+    $("#faucet-trace").hidden = false;
+    setText("faucet-progress", "Income confirmed. Waiting for Reactive to deliver the callback.");
+    await refreshAll({ afterBlock: receipt.blockNumber });
+    void followIncome(tracked);
   } catch (err) {
-    toast(humanError(err), true);
+    if (signer === state.signer) toast(humanError(err), true);
   } finally {
     state.busy = false;
     setBusy(button, "", false);
-    await refreshAll();
+    if (signer === state.signer) { renderFaucet(); renderWorkspace(); }
   }
 }
 
-async function pollForSplit(income, account) {
-  state.pollingSplit = true;
-  try {
-    for (let i = 0; i < 10 && account === state.account; i++) {
-      const groups = await loadActivity();
-      if (account !== state.account) return;
-      const group = matchedPayout(groups, income);
-      if (group) {
-        toast(`Income recorded: ${fmt(group.totalRouted)} ${state.symbol} routed, ${fmt(group.retained)} retained.`);
-        return;
-      }
-      setText("reactive-note", `Waiting for this income's callback… (${i + 1}/10)`);
-      await sleep(3000);
+async function followIncome(tracked) {
+  const isCurrent = () => state.latestIncome === tracked && state.signer === tracked.signer;
+  for (let check = 0; check < 10 && isCurrent(); check++) {
+    const groups = await loadActivity({ publish: false });
+    if (!isCurrent()) return;
+    const payout = matchedPayout(groups, tracked.income);
+    if (payout) {
+      setText("faucet-progress", `Callback confirmed. ${formatUnits(payout.totalRouted, state.decimals)} ${state.symbol} routed.`);
+      await refreshAll({ afterBlock: payout.blockNumber });
+      return;
     }
-    if (account === state.account) {
-      setText("reactive-note", "No matching payout found yet. Open Income trace to check this transfer.");
-    }
-  } finally {
-    state.pollingSplit = false;
+    await sleep(3000);
   }
+  if (isCurrent()) setText("faucet-progress", "The payout is still unconfirmed. Use Income trace to check its source and callback.");
 }
 
 /* ------------------------------------------------------------------ */
@@ -2048,6 +1966,10 @@ function wire() {
   $("#rule-form").addEventListener("submit", saveRule);
   $("#approve-btn").addEventListener("click", approve);
   $("#faucet-btn").addEventListener("click", claim);
+  $("#faucet-trace").addEventListener("click", () => {
+    const tracked = state.latestIncome;
+    if (tracked && tracked.signer === state.signer) incomeTrace.open(tracked.income.hash, tracked.income.logIndex);
+  });
   $("#pause-rule").addEventListener("click", pauseAll);
   $("#revoke-allowance").addEventListener("click", revokeAllowance);
   $("#run-now").addEventListener("click", runNow);

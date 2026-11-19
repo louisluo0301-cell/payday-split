@@ -16,6 +16,7 @@ jobs:
       - run: forge --version
       - run: forge fmt --check
       - run: forge build --sizes --skip test --skip script
+      - run: node web/script/contract-abi.mjs --check
       - run: forge test -vv
       - run: forge coverage --ir-minimum --report summary
         continue-on-error: true

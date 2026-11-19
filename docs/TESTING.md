@@ -5,9 +5,9 @@ Validated 2026-11-18. See [income modules](income-modules/README.md), [workspace
 ## Results
 
 - Foundry: **106 passed, 0 failed**, including fuzz tests and the v9 income modules.
-- Frontend: **50 passed, 0 failed**. Includes testnet deployment validation, workspace guidance, payment review, exact CSV decimals, retry receipt matching and loopback relay validation.
+- Frontend: **53 passed, 0 failed**. Includes testnet deployment validation, payment review, confirmed-block wallet snapshots and faucet detection.
 - PowerShell environment parser: 7 checks; inline comments, quotes, URL fragments, export assignments, empty values and malformed quotes. Included in CI.
-- `forge fmt --check` and `npm run build`: passed. Source syntax checks include JavaScript modules and PowerShell scripts.
+- `forge fmt --check` and `npm run build`: passed. CI also uses `node web/script/contract-abi.mjs --check` to compare the browser interfaces with compiled Solidity.
 - Historical Anvil full loop: Transfer → react → MockProxy → 3 Split + Retained. Evidence: `deployments/31337.evidence.json`.
 - Four pro-rata loops: budget 600; first goal 350 pays 300 → 50 → 0 → after 7 days 300; later shares remain 180/120. Every preview matches balance changes; every duplicate delivery pays zero. Evidence: `deployments/31337.budget-v7.evidence.json`.
 - Eight standard-token buckets/goals fit the 900,000 gas historical regression. Seven gas-burning buckets followed by a valid eighth complete in the requested 1,500,000 gas MockProxy budget. Real proxy overhead is not modeled.

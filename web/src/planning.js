@@ -4,7 +4,7 @@ import {parsePlan} from './plan-backup.js';
 
 export function createPlanning(ctx) {
   const {state, deployment, chainId, $, toast, bucketFromEditor} = ctx;
-  let goals = [], targets = [], signature = '', previewRequest = 0, pendingImport = false;
+  let goals = [], targets = [], signature = '', previewRequest = 0, goalsRequest = 0, pendingImport = false;
   let previousIds = [], previousKeys = [], nextDraftId = 0, cycleKey = '';
   const context = () => ({chainId, decimals:state.decimals, token:deployment.token || '0x0000000000000000000000000000000000000000'});
   const units = value => {
@@ -104,30 +104,33 @@ export function createPlanning(ctx) {
       } else {
         if(!state.signer || state.dirty) throw new Error('Save destinations before setting goals.');
         state.busy=true;
-        const tx=await state.split.connect(state.signer).setBucketGoal(deployment.token,index,state.ruleVersion,target,reset);
-        await tx.wait();
-        await load();
+        const signer = state.signer;
+        const tx=await state.split.connect(signer).setBucketGoal(deployment.token,index,state.ruleVersion,target,reset);
+        const receipt = await tx.wait();
+        if (signer !== state.signer) return;
+        targets[index] = undefined;
+        await load({ blockTag: receipt.blockNumber });
       }
-      targets[index]=formatUnits(target,state.decimals);
+      if (state.demoMode) targets[index]=formatUnits(target,state.decimals);
       render(); await preview();
       toast(reset?'New funding cycle started.':'Funding target saved. Paid progress preserved.');
     } catch(err) {toast(err.shortMessage||err.message,true);}
     finally {state.busy=false;}
   }
-  async function load() {
+  async function load(at = {}) {
     if(!state.split || state.dirty || state.demoMode) return;
     const { account, signer, split, ruleVersion: version } = state;
+    const request = ++goalsRequest;
     try {
-      const values=await Promise.all(state.buckets.map((_,i)=>split.bucketGoals(account,deployment.token,version,i)));
-      if(signer!==state.signer || version!==state.ruleVersion || state.dirty) return;
+      const values=await Promise.all(state.buckets.map((_,i)=>split.bucketGoals(account,deployment.token,version,i,at)));
+      if(request!==goalsRequest || signer!==state.signer || version!==state.ruleVersion || state.dirty) return;
       goals=values.map(g=>({target:g.target,paid:g.paid,cycle:g.cycle}));
-      if(!pendingImport) targets=[];
       render();
     } catch {
-      if(signer===state.signer) $('#goals-status').textContent='Goals could not be read. Check the connection and try again.';
+      if(request===goalsRequest && signer===state.signer) $('#goals-status').textContent='Goals could not be read. Check the connection and try again.';
     }
   }
-  async function preview() {
+  async function preview(at = {}) {
     const request=++previewRequest;
     try {
       const paycheck=parseUnits(String(state.samplePaycheck),state.decimals);
@@ -139,7 +142,7 @@ export function createPlanning(ctx) {
         $('#execution-title').textContent='Next sample income';
       } else {
         if(!state.split || state.dirty) throw new Error('Connect and save destinations to check the current onchain execution.');
-        const result=await state.split.previewExecution(state.account,deployment.token,paycheck);
+        const result=await state.split.previewExecution(state.account,deployment.token,paycheck,at);
         retained=result[1]; paid=paycheck-retained; reason=Number(result[2]);
       }
       if(request!==previewRequest) return;
@@ -183,10 +186,10 @@ export function createPlanning(ctx) {
     } catch(err) {toast(err.message,true);}
   }
   function wire() {
-    $('#execution-refresh').addEventListener('click',preview);
+    $('#execution-refresh').addEventListener('click',()=>preview());
     $('#plan-export').addEventListener('click',exportPlan);
     $('#plan-import').addEventListener('click',importPlan);
   }
-  function clear() {goals=[];targets=[];previousIds=[];previousKeys=[];signature='';cycleKey='';pendingImport=false;++previewRequest;}
+  function clear() {goals=[];targets=[];previousIds=[];previousKeys=[];signature='';cycleKey='';pendingImport=false;++previewRequest;++goalsRequest;}
   return {sync,load,preview,record,wire,clear,getGoals:()=>{syncCycles();return goals;}};
 }
