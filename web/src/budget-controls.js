@@ -32,8 +32,10 @@ export function createBudgetControls(ctx) {
       else {
         if(!state.signer || state.dirty) throw new Error('Connect and save destination changes first.');
         state.busy=true;
-        await (await state.split.connect(state.signer).setAllocationMode(deployment.token,mode)).wait();
-        await ctx.refresh();
+        const signer = state.signer;
+        const receipt = await (await state.split.connect(signer).setAllocationMode(deployment.token,mode)).wait();
+        if (signer !== state.signer) return;
+        await ctx.refresh({ afterBlock: receipt.blockNumber });
       }
       show();ctx.update();await ctx.planner.preview();toast('Allocation mode saved. Goals keep their progress.');
     } catch(err) {toast(err.shortMessage||err.message,true);}
@@ -52,9 +54,11 @@ export function createBudgetControls(ctx) {
       } else {
         if(!state.signer) throw new Error('Connect to configure cycles.');
         state.busy=true;
-        await (await state.split.connect(state.signer).setCycleConfig(deployment.token,anchor,duration)).wait();
+        const signer = state.signer;
+        const receipt = await (await state.split.connect(signer).setCycleConfig(deployment.token,anchor,duration)).wait();
+        if (signer !== state.signer) return;
         cycleDirty=false;
-        await ctx.refresh();
+        await ctx.refresh({ afterBlock: receipt.blockNumber });
       }
       show();ctx.update();await ctx.planner.preview();toast('Cycle saved. A changed schedule starts fresh progress.');
     } catch(err) {toast(err.shortMessage||err.message,true);}

@@ -1,12 +1,13 @@
 import {Contract,FetchRequest,JsonRpcProvider,isAddress} from 'ethers';
+import { OBSERVER_ABI, REACTIVE_ABI, SPLIT_ABI, TOKEN_ABI } from './contract-abi.generated.js';
 
 const SYSTEM='0x8888888888888888888888888888888888888888';
 const ABI={
   fees:['function debt(address) view returns(uint256)','function reserves(address) view returns(uint256)'],
-  split:['function paused() view returns(bool)','function reactive() view returns(address)','function _SERVICE_PROVIDER() view returns(address)','function ruleVersion(address,address) view returns(uint256)','function getBuckets(address,address) view returns((address payee,uint96 fixedAmount,uint16 bps,bool active)[])','function policies(address,address) view returns(uint96 reserve,uint96 maxPerRun,uint96 dailyLimit,uint96 minIncome,uint64 validUntil,bool paused)','function dailySpend(address,address) view returns(uint256 day,uint256 amount)','function cycleConfigs(address,address) view returns(uint64 anchor,uint32 duration,uint32 revision)'],
-  reactive:['function paused() view returns(bool)','function remaining() view returns(uint256)','function _SERVICE_PROVIDER() view returns(address)','function getRule(address,address) view returns(address[] payees,uint96[] fixedAmounts,uint16[] bps,bool[] active,uint256 version,bool subscribed)','function userRemaining(address,address) view returns(uint256)'],
-  token:['function balanceOf(address) view returns(uint256)','function allowance(address,address) view returns(uint256)'],
-  observer:['function count() view returns(uint256)','function remaining() view returns(uint256)','function subscribed() view returns(bool)','function OWNER() view returns(address)','function TOKEN() view returns(address)'],
+  split:SPLIT_ABI,
+  reactive:REACTIVE_ABI,
+  token:TOKEN_ABI,
+  observer:OBSERVER_ABI,
 };
 const same=(a,b)=>typeof a==='string'&&typeof b==='string'&&a.toLowerCase()===b.toLowerCase();
 

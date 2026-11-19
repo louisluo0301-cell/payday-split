@@ -164,7 +164,7 @@ export function createIncomeTrace({ $, context, readReactive, readActivity, read
           const head = BigInt(await ctx.provider.send('eth_blockNumber', []));
           const processed = await ctx.split.processed(keys.destination, { blockTag: head });
           if (processed) {
-            const groups = await readActivity();
+            const groups = await readActivity({ head, publish: false });
             const payout = matchedPayout(groups, income);
             const retries = await readRetries(ctx, income, payout, head);
             return { processed, payout, retries };

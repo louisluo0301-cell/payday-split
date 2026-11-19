@@ -1,28 +1,13 @@
 import { Contract, FetchRequest, JsonRpcProvider, ZeroAddress, formatUnits, getAddress, isAddress, parseUnits } from 'ethers';
-import { RETRY_QUEUE_ABI } from './retry-evidence.js';
+import {
+  FACTORY_ABI as FACTORY, REACTIVE_ABI, RETRY_QUEUE_ABI, SAVINGS_ABI as AAVE, TOKEN_ABI as TOKEN, VAULT_ABI as VAULT,
+} from './contract-abi.generated.js';
 
-const FACTORY = [
-  'function split() view returns(address)',
-  'function latest(address,address,uint8) view returns(address)',
-  'function createNative(address) returns(address)',
-  'function createAave(address,address) returns(address)',
-  'function createCooldown(address,uint256) returns(address)',
-];
-const VAULT = [
-  'function releaseAt() view returns(uint256)',
-  'function pendingAmount() view returns(uint256)',
-  'function delay() view returns(uint256)',
-  'function requestWithdrawal(uint256 amount)',
-  'function releaseWithdrawal()',
-  'function cancelWithdrawal()',
-];
-const AAVE = ['function aToken() view returns(address)', 'function pool() view returns(address)'];
-const TOKEN = ['function balanceOf(address) view returns(uint256)'];
 const same = (a, b) => a?.toLowerCase() === b?.toLowerCase();
 const available = address => isAddress(address || '') && !same(address, ZeroAddress);
 const time = value => new Date(Number(value) * 1000).toLocaleString();
 
-export function createIncomeModules({ $, context, stageBucket, toast, setWalletBusy }) {
+export function createIncomeModules({ $, context, stageBucket, toast, setWalletBusy, refreshWorkspace }) {
   let snapshot;
   let requestId = 0;
   let working = false;
@@ -55,7 +40,7 @@ export function createIncomeModules({ $, context, stageBucket, toast, setWalletB
     const rpc = new JsonRpcProvider(request, reactiveChainId, { staticNetwork: true, batchMaxCount: 1 });
     try {
       if (BigInt(await rpc.send('eth_chainId', [])) !== BigInt(reactiveChainId)) return null;
-      const reactive = new Contract(deployment.reactive, ['function remainingRetryCalls() view returns(uint256)'], rpc);
+      const reactive = new Contract(deployment.reactive, REACTIVE_ABI, rpc);
       return await reactive.remainingRetryCalls();
     } catch { return null; }
     finally { rpc.destroy(); }
@@ -209,8 +194,11 @@ export function createIncomeModules({ $, context, stageBucket, toast, setWalletB
             || !same((await ctx.provider.send('eth_accounts', []))[0], ctx.account)
             || ctx.signer !== context().signer) throw new Error('Wallet or network changed. Refresh before continuing.');
           const tx = await work(ctx, snapshot);
-          await tx.wait();
-          if (ctx.signer === context().signer) toast('Module transaction confirmed.', false, tx.hash);
+          const receipt = await tx.wait();
+          if (ctx.signer === context().signer) {
+            toast('Module transaction confirmed.', false, tx.hash);
+            await refreshWorkspace({ afterBlock: receipt.blockNumber });
+          }
         } catch (error) {
           if (ctx.signer === context().signer) toast(error.shortMessage || error.message, true);
         } finally {

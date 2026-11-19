@@ -1,0 +1,13 @@
+{
+  "network": "Isolated local Anvil",
+  "wallet": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+  "deployer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+  "source": "0x103b3daa2da83440cf095ad26130abd5c305873841d723e512be6c5f87c6539c",
+  "callback": "0xac98c8fe324fe62da279888acd2dccdc2e8c0148fdb80a86392f832dceb26c24",
+  "income": "1000 dUSDC",
+  "routed": "700 dUSDC",
+  "retained": "300 dUSDC",
+  "remainingAllowance": "300 dUSDC",
+  "historyMatched": true,
+  "repeatCallbacks": 0
+}
