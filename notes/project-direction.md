@@ -26,4 +26,4 @@ Lasna 上的 Reactive Omni 合约监听 Ethereum Sepolia 上指定 ERC-20（演�
 
 ## 报名凭证
 
-DoraHacks 报名状态待核实。[Reactive Omni Buildathon 官方报名页](https://dorahacks.io/hackathon/reactive-omni-buildathon/detail)
+DoraHacks 待报名。[Reactive Omni Buildathon 官方报名页](https://dorahacks.io/hackathon/reactive-omni-buildathon/detail)
