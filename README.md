@@ -11,6 +11,7 @@
 - **Omni 实现**：使用 `reactive-lib-omni`、`onlySystem` 和 `SYSTEM.requestCallbackV_1_0`；回调首参数保留 `address(0)`，由网络注入 Reactive 合约地址。
 - **费用机制实测**：[Lasna 三参数查询与三问回答](docs/LASNA-FEES-NOTE.md)，附 [cast 原始输出](deployments/lasna-fees.json)。
 - **首次真实部署已提交**：[Sepolia Transfer → Lasna react() 完成记录](notes/2026-11-18-first-transfer-monitor.md)，包含真实交易、自动退订和截图；平台审核结果尚未核实。
+- **黑客松方向卡**：[参赛方向、用户场景与第 2 周最小演示](notes/project-direction.md)。
 - **项目实践**：[v7 功能与验收记录](docs/UPGRADE-v7.md)、[测试复现方法](docs/TESTING.md)、[本地完整流程证据](deployments/31337.evidence.json)。
 - **相似项目研究与勘误**：[GitHub 参考项目](docs/REFERENCE-RESEARCH-v7.md)、[最新代码复核记录](docs/CODE-REVIEW-v8.md)。
 - **v8 自动化健康检查**：[功能与验收](docs/UPGRADE-v8.md)：费用余额/预付储备/欠费、回调次数、规则镜像、用户限额、异常提示和恢复记录。
