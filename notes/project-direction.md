@@ -18,7 +18,7 @@ Lasna 上的 Reactive Omni 合约监听 Ethereum Sepolia 上指定 ERC-20（演�
 2. 从另一钱包向用户钱包转入 1,000 dUSDC。Lasna 合约的 `react()` 捕获这笔 `Transfer`，请求回调 Ethereum Sepolia 的分账合约。
 3. 核对三段交易以及目标链的 `Split` 和 `Retained` 事件。预期房租 300、税务预留 250、储蓄 150，剩余 300 dUSDC 留在用户钱包。用来源交易哈希和日志索引对应付款明细，重复处理同一事件时应保持同一组结果。
 
-这条链路已在本地 Anvil 模拟环境复现，第二个钱包也通过了自动分账和重复处理校验。真实测试网上，独立监听作业已验证 Sepolia → Lasna；产品的目标链回调与分账仍待验收。[本地三段演示记录](../deployments/31337.evidence.json) · [双钱包实测](../docs/workspace/integration/browser-local-evidence.json) · [独立监听作业](./2026-11-18-first-transfer-monitor.md)
+这条链路已在本地 Anvil 模拟环境复现，第二个钱包也通过了自动分账和重复处理校验。单桶最小版本也已在 Sepolia 与 Lasna 完成真实分账，分出 300 dUSDC 并留存 700 dUSDC。[三段交易与时序图](../README.md#最小分账闭环)。[本地三段演示记录](../deployments/31337.evidence.json) · [双钱包实测](../docs/workspace/integration/browser-local-evidence.json) · [独立监听作业](./2026-11-18-first-transfer-monitor.md)
 
 ## 5. 参赛形式
 

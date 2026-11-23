@@ -1,0 +1,31 @@
+{
+  "status": "verified-real-testnet",
+  "verifiedAt": "2026-11-23T08:41:30.681Z",
+  "contracts": {
+    "token": "0xF08fD050eef4b0d74e81300aeC188B5218157Ff2",
+    "split": "0x2742Df5C6Fac4A7FF8D1d20D7D9bB8f020bF375F",
+    "reactive": "0xFfA5C8A1FD3c45afc0936cD21d12D14a8f513b0c",
+    "proxy": "0xAa14d9Cd0f788Ca23d11805986C1d8bd035D23b4"
+  },
+  "rule": {
+    "user": "0x90D2A64b86cB547d729ce61101FcD835d512e55a",
+    "payee": "0x000000000000000000000000000000000000dEaD",
+    "version": "1"
+  },
+  "origin": {
+    "url": "https://sepolia.etherscan.io/tx/0x5407766076d2a9131a7fdd622dd15be693e3b3aec9f672399907e51d0d700fd6",
+    "block": 12194576,
+    "logIndex": 24,
+    "amountDUSDC": "1000"
+  },
+  "react": {
+    "url": "https://lasna.reactscan.net/tx/0x9eaceb9638091341be225bf5dc939a35bacb24b5babb3e035a40cd72ee56fa08",
+    "block": 9042558
+  },
+  "callback": {
+    "url": "https://sepolia.etherscan.io/tx/0x66913a9758316f8c1f94fe997af744cb97f82905a3e3eeaf55edb1705c6fb21f",
+    "block": 12194577,
+    "distributedDUSDC": "300",
+    "retainedDUSDC": "700"
+  }
+}

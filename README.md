@@ -4,6 +4,36 @@
 >
 > Reactive Omni Buildathon · Track 2 — *Set It and Forget It*
 
+## 最小分账闭环
+
+最小分账在 **2026-11-23** 通过真实测试网验证。Ethereum Sepolia 的 DemoUSDC 铸造 1,000 dUSDC 到测试钱包，Lasna 的 PaydaySplitReactive 匹配收入事件并请求回调，Sepolia 的 PaydaySplit 按固定桶实际划转 **300 dUSDC**，本笔收入留存 **700 dUSDC**。三段记录使用同一个来源交易哈希和日志索引。
+
+1. **源链 · Ethereum Sepolia**。[DemoUSDC 收入事件](https://sepolia.etherscan.io/tx/0x5407766076d2a9131a7fdd622dd15be693e3b3aec9f672399907e51d0d700fd6)
+2. **Reactive · Lasna**。[观察收入并请求回调](https://lasna.reactscan.net/tx/0x9eaceb9638091341be225bf5dc939a35bacb24b5babb3e035a40cd72ee56fa08)
+3. **目标链 · Ethereum Sepolia**。[官方代理交付与实际分账](https://sepolia.etherscan.io/tx/0x66913a9758316f8c1f94fe997af744cb97f82905a3e3eeaf55edb1705c6fb21f)
+
+[合约地址与结构化验收记录](deployments/paydaysplit-sepolia-lasna.evidence.json)
+
+第一次回调到达 Sepolia 后，初始余额为零的演示收款地址触发了单桶转账失败。只读对照模拟复现了这一行为。为演示地址铸造 0.000001 dUSDC 初始化余额后，恢复一次回调额度并触发新收入，第二次回调完成分账。首次向零余额收款地址分账的 gas 限制仍需处理。[首次回调](https://sepolia.etherscan.io/tx/0xe4b7faeaff8f03f671ef532bad5cc3c7ab265d18e4bfc5362aaa3c7a4d1f4819)
+
+```mermaid
+sequenceDiagram
+    participant U as 测试钱包
+    participant T as DemoUSDC · Sepolia
+    participant R as PaydaySplitReactive · Lasna
+    participant P as 官方回调代理 · Sepolia
+    participant S as PaydaySplit · Sepolia
+    U->>S: 保存固定金额桶和规则版本
+    S-->>R: BucketsSet，同步规则并订阅到账
+    U->>T: mint()，铸造 1000 dUSDC
+    T-->>R: Transfer，携带来源交易哈希和日志索引
+    R->>R: react() 核对订阅与剩余预算，携带同步的规则版本
+    R->>P: 请求执行 executeSplit
+    P->>S: 交付回调
+    S->>T: 在有限授权内划转 300 dUSDC
+    S-->>U: 记录 Split 与 Retained，钱包留存 700 dUSDC
+```
+
 ## 学习记录 · 2026-11-18
 
 本仓库记录 Reactive Omni 收入分账项目的实现、测试和学习笔记。
@@ -21,7 +51,7 @@
 - **v9 工作台优化**：同一部署切换 USDC 和 WETH，连接时核对钱包和链，原收入凭证自动对账补付结果，CSV 保留完整金额精度。[使用说明与本地验收](docs/workspace/README.md)。
 - **网页操作入口**：在工作台选择钱包、打开已有的测试网部署、设置授权并预演付款。网络切换由页面发起，交易在钱包确认。[网页操作与截图](docs/workspace/README.md)。
 - **前端与合约同步**：前端和本地回调监听使用 Solidity 编译生成的接口。交易确认后从包含该交易的区块刷新余额、额度与已保存规则。[本地双钱包验收](docs/workspace/README.md)。
-- **当前进度**：独立监听作业已在真实测试网验证。PaydaySplit 核心的真实回调分账部署与外部审计暂缓。
+- **当前进度**：独立监听作业已在真实测试网验证。PaydaySplit 核心在 Sepolia 与 Lasna 完成了单桶自动分账验收，见[三段交易](#最小分账闭环)。
 
 ![PaydaySplit demo](docs/demo-preview.gif)
 
@@ -38,7 +68,7 @@
 **PaydaySplit is a non-custodial income waterfall.** Every payment in a configured ERC-20 is routed by priority in one Reactive callback: the default preset puts fixed bills first (rent, salaries), then percentage buckets (tax, savings, bonus), and the remainder stays in the wallet. Up to 8 buckets, versioned rules, per-bucket failure isolation, and a manual recovery path.
 
 - **106 Foundry tests** and **53 frontend tests**, covering allocation, replay, budgets, diagnostics, receipt-based recovery, wallet and deployment selection, and payment review.
-- **Local Anvil full loop is verified** — see `deployments/31337.evidence.json`; the **PaydaySplit core testnet callback/payout remains pending**. The independent camp observer has separate real testnet evidence.
+- **Verified on Sepolia and Lasna.** The single-bucket testnet run paid 300 dUSDC and retained 700 dUSDC from a 1,000 dUSDC test income. [Testnet proof](deployments/paydaysplit-sepolia-lasna.evidence.json) · [Local full loop](deployments/31337.evidence.json)
 - **No-wallet demo:** `cd web && npm install && npm run dev`, then open `/?demo=1`.
 - **Local full loop:** `pwsh ./script/local-demo.ps1`; run `npm run local:watch` in `web/` for ongoing callbacks. Use `-Port` for a separate instance or `-Reset` to clear a disposable Anvil.
 - **Video:** `docs/payday-split-demo.mp4` (2:57, local Anvil; Chinese narration + English subtitles).
@@ -49,7 +79,7 @@
 | Contracts: 106 tests; frontend: 53 tests | ✅ local; CI workflow included |
 | Local Anvil end-to-end (Transfer → react → callback → Split/Retained) | ✅ verified |
 | Demo mode / judge quick path | ✅ `?demo=1` |
-| PaydaySplit core Sepolia + Lasna deployment | ⏳ callback/payout verification pending (see `docs/REMAINING_TASKS.md`) |
+| PaydaySplit core Sepolia + Lasna deployment | ✅ [Verified single-bucket callback and payout](#最小分账闭环) |
 | Independent camp observer | ✅ real Sepolia → Lasna observation and automatic unsubscribe; submitted by user |
 | Public GitHub | ✅ https://github.com/louisluo0301-cell/payday-split |
 | DoraHacks submission | ⏳ pending |
