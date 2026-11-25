@@ -1,0 +1,14 @@
+forge test --offline --color never --match-test ^test_guardrails
+
+No files changed, compilation skipped
+
+Ran 1 test for test/IncomeModules.t.sol:IncomeModulesTest
+[PASS] test_guardrailsRetryHonorsRemainingTotalBudget() (gas: 1864477)
+Suite result: ok. 1 passed; 0 failed; 0 skipped; finished in 2.24ms (782.50µs CPU time)
+
+Ran 2 tests for test/PaydaySplit.t.sol:PaydaySplitTest
+[PASS] test_guardrailsOnlyMatchingTransferCanSpend() (gas: 2007981)
+[PASS] test_guardrailsReplayPerRunAndTotalCapAcrossDays() (gas: 3637784)
+Suite result: ok. 2 passed; 0 failed; 0 skipped; finished in 3.32ms (1.90ms CPU time)
+
+Ran 2 test suites in 4.70ms (5.56ms CPU time): 3 tests passed, 0 failed, 0 skipped (3 total tests)

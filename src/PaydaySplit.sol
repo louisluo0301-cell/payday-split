@@ -164,6 +164,9 @@ contract PaydaySplit is AbstractPayer, Ownable2Step, Pausable, ReentrancyGuard {
     }
     mapping(address => mapping(address => Policy)) public policies;
     mapping(address => mapping(address => DailySpend)) public dailySpend;
+
+    /// @notice Zero disables the cap. Otherwise, subtract one to get the remaining allocation.
+    mapping(address => mapping(address => uint256)) public totalBudgetPlusOne;
     event PolicySet(address indexed user, address indexed token, Policy policy);
     event PolicyBlocked(address indexed user, address indexed token, uint8 reason);
     error OnlySelf();
@@ -325,6 +328,11 @@ contract PaydaySplit is AbstractPayer, Ownable2Step, Pausable, ReentrancyGuard {
         policies[msg.sender][token_] = policy_;
         ++retryEpoch[msg.sender][token_];
         emit PolicySet(msg.sender, token_, policy_);
+    }
+
+    /// @notice Set a remaining spending cap shared by automatic, manual and retry payouts.
+    function setTotalBudget(address token_, bool enabled_, uint96 remaining_) external nonReentrant {
+        totalBudgetPlusOne[msg.sender][token_] = enabled_ ? uint256(remaining_) + 1 : 0;
     }
 
     modifier onlyReactive(address reactive_) {
@@ -521,6 +529,8 @@ contract PaydaySplit is AbstractPayer, Ownable2Step, Pausable, ReentrancyGuard {
         if (config.duration != 0 && block.timestamp < config.anchor) return (balance, allowance, 0, 5);
         budget = paycheck_;
         if (policy.maxPerRun != 0) budget = Math.min(budget, policy.maxPerRun);
+        uint256 total = totalBudgetPlusOne[user_][token_];
+        if (total != 0) budget = Math.min(budget, total - 1);
         DailySpend storage spent = dailySpend[user_][token_];
         uint256 today = spent.day == block.timestamp / 1 days ? spent.amount : 0;
         if (policy.dailyLimit != 0) {
@@ -702,12 +712,6 @@ contract PaydaySplit is AbstractPayer, Ownable2Step, Pausable, ReentrancyGuard {
             emit Retained(user_, token_, paycheck_, version_, originTxHash_, logIndex_);
             return;
         }
-        DailySpend storage spent = dailySpend[user_][token_];
-        uint256 day = block.timestamp / 1 days;
-        if (spent.day != day) {
-            spent.day = day;
-            spent.amount = 0;
-        }
         uint256 allocationBase = budget;
         bool queue = originTxHash_ != 0 && retryEnabled[user_][token_];
         uint256[8] memory failed;
@@ -778,11 +782,11 @@ contract PaydaySplit is AbstractPayer, Ownable2Step, Pausable, ReentrancyGuard {
             allowance -= amount;
             remaining -= amount;
             budget -= amount;
-            spent.amount += amount;
             _fundGoal(user_, token_, version_, i, id, goal, amount);
             emit Split(user_, token_, bucket.payee, paycheck_, amount, i, version_, originTxHash_, logIndex_);
         }
 
+        _recordPayout(user_, token_, paycheck_ - remaining);
         if (remaining > 0) {
             emit Retained(user_, token_, remaining, version_, originTxHash_, logIndex_);
         }
@@ -840,14 +844,22 @@ contract PaydaySplit is AbstractPayer, Ownable2Step, Pausable, ReentrancyGuard {
         uint256 amount = job.amount;
         if (amount > Math.min(budget, Math.min(balance, allowance))) return PaydayRetryQueue.RetryResult.Wait;
         if (!_tryTransferFrom(IERC20(o.token), o.user, bucket.payee, amount)) return PaydayRetryQueue.RetryResult.Wait;
-        DailySpend storage spent = dailySpend[o.user][o.token];
-        if (spent.day != day) {
-            spent.day = day;
-            spent.amount = 0;
-        }
-        spent.amount += amount;
+        _recordPayout(o.user, o.token, amount);
         _fundGoal(o.user, o.token, o.version, index, id, goal, amount);
         return PaydayRetryQueue.RetryResult.Paid;
+    }
+
+    function _recordPayout(address user_, address token_, uint256 amount_) private {
+        DailySpend storage spent = dailySpend[user_][token_];
+        uint256 day = block.timestamp / 1 days;
+        if (spent.day == day) {
+            spent.amount += amount_;
+        } else {
+            spent.day = day;
+            spent.amount = amount_;
+        }
+        uint256 total = totalBudgetPlusOne[user_][token_];
+        if (amount_ != 0 && total != 0) totalBudgetPlusOne[user_][token_] = total - amount_;
     }
 
     /// @dev Fail closed on unreadable balances/allowances; unknown spending capacity is zero.

@@ -34,6 +34,19 @@ sequenceDiagram
     S-->>U: 记录 Split 与 Retained，钱包留存 700 dUSDC
 ```
 
+## 自动化保护
+
+- **触发条件**只匹配已订阅的钱包和代币在指定链上的标准 ERC-20 `Transfer`。金额要达到配置的最低门槛，排除零额、自转和已启用资金桶退回的款项。
+- **事件去重**在 Lasna 按来源交易哈希和日志索引记录回调请求，目标链按钱包、代币和同一来源记录分账。重放同一事件不会再次扣款，同一交易中的不同日志可以分别处理。
+- **金额上限**由每笔限额 `maxPerRun`、UTC 每日限额 `dailyLimit` 和可选的跨日剩余额度共同约束，实际分账还受余额和 ERC-20 授权限制。用户可签名调用 `setTotalBudget(token, true, remaining)` 设置自己的跨日额度，金额使用代币最小单位。`totalBudgetPlusOne(user, token)` 返回 0 表示未启用，1 表示已用完，更大的值减 1 即剩余可分账金额。只有实际付出的金额才扣额度，续期和重新授权不会自动补充它。
+
+Foundry 验收覆盖正常触发、错误事件拒绝、两端重放、跨日额度耗尽和重试限额。[触发与额度测试](test/PaydaySplit.t.sol) · [重试测试](test/IncomeModules.t.sol) · [通过截图](docs/guardrails/forge-test.png) · [原始输出](docs/guardrails/forge-test.txt)
+
+## 出问题怎么办
+
+- **执行费耗尽**时，检查 Lasna 系统合约和目标链回调代理分别报告的 `debt` 与 `reserves`。费用无法结清而产生欠费时，相应链暂停执行。通过各自的 `depositTo(合约地址)` 补充该链原生测试币，先清欠费，再增加预存，确认两侧欠费归零。若用完的是 Lasna 回调次数，管理员需有针对性地恢复全局或用户次数。若用完的是分账金额额度，钱包需增加对应余额、授权或额度。[Reactive 费用与充值文档](https://dev.reactive.network/economy#funding-reactive-contracts)
+- **目标链回调失败**时，先用来源交易哈希和日志索引查目标链回执。整笔回滚时分账和处理标记都会回滚，但已尝试的回调仍可能收费。修复原因后，确认这笔来源未被处理，再由收款钱包用 `recoverSplit` 补单。成功回调中的单桶失败会输出 `BucketSkipped`，已付桶及剩余金额保留原结果。启用重试时检查原笔队列，只补仍待付的桶。[单笔收入追踪与恢复](docs/income-trace/README.md)
+
 ## 学习记录 · 2026-11-18
 
 本仓库记录 Reactive Omni 收入分账项目的实现、测试和学习笔记。
@@ -67,7 +80,7 @@ sequenceDiagram
 
 **PaydaySplit is a non-custodial income waterfall.** Every payment in a configured ERC-20 is routed by priority in one Reactive callback: the default preset puts fixed bills first (rent, salaries), then percentage buckets (tax, savings, bonus), and the remainder stays in the wallet. Up to 8 buckets, versioned rules, per-bucket failure isolation, and a manual recovery path.
 
-- **106 Foundry tests** and **53 frontend tests**, covering allocation, replay, budgets, diagnostics, receipt-based recovery, wallet and deployment selection, and payment review.
+- **109 Foundry tests** and **53 frontend tests**, covering allocation, replay, cumulative budgets, diagnostics, receipt-based recovery, wallet and deployment selection, and payment review.
 - **Verified on Sepolia and Lasna.** The single-bucket testnet run paid 300 dUSDC and retained 700 dUSDC from a 1,000 dUSDC test income. [Testnet proof](deployments/paydaysplit-sepolia-lasna.evidence.json) · [Local full loop](deployments/31337.evidence.json)
 - **No-wallet demo:** `cd web && npm install && npm run dev`, then open `/?demo=1`.
 - **Local full loop:** `pwsh ./script/local-demo.ps1`; run `npm run local:watch` in `web/` for ongoing callbacks. Use `-Port` for a separate instance or `-Reset` to clear a disposable Anvil.
@@ -76,7 +89,7 @@ sequenceDiagram
 
 | Evidence | Status |
 |---|---|
-| Contracts: 106 tests; frontend: 53 tests | ✅ local; CI workflow included |
+| Contracts: 109 tests; frontend: 53 tests | ✅ local; CI workflow included |
 | Local Anvil end-to-end (Transfer → react → callback → Split/Retained) | ✅ verified |
 | Demo mode / judge quick path | ✅ `?demo=1` |
 | PaydaySplit core Sepolia + Lasna deployment | ✅ [Verified single-bucket callback and payout](#最小分账闭环) |
@@ -93,7 +106,7 @@ PaydaySplit 不再只是「工资自动存钱」，而是一个**收入分账引
 - 合约：Solidity `0.8.29`，Foundry，`reactive-lib-omni v0.1.0`
 - 规则：固定金额 + 百分比 + 优先级 + 版本号；最多 8 个去向
 - 前端：Vite + ethers v6，可视化 waterfall 编辑器
-- 测试：**106 个 Foundry 测试全部通过**（含 fuzz）
+- 测试：**109 个 Foundry 测试全部通过**（含 fuzz）
 - 本地全链路：Anvil + MockSystem + MockProxy 实测通过
 
 ---

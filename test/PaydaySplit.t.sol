@@ -1770,4 +1770,74 @@ contract PaydaySplitTest is Test {
         assertEq(reentrant.balanceOf(alice), PAYCHECK - 100e6);
         assertEq(reentrant.balanceOf(aliceSavings), 100e6);
     }
+
+    function test_guardrailsOnlyMatchingTransferCanSpend() public {
+        _armAlice();
+        reactive.setMinPaycheck(100e6);
+        uint256 available = reactive.remaining();
+
+        _react(_transferLog(employer, bob, PAYCHECK, 501, 0));
+        _react(_transferLog(employer, alice, 99e6, 502, 0));
+        IReactive.LogRecord memory income = _transferLog(employer, alice, PAYCHECK, 503, 0);
+        IReactive.LogRecord memory otherToken = income;
+        otherToken.contractAddress = address(0xbad);
+        _react(otherToken);
+        income.contractAddress = address(token);
+        bytes memory valid = income.data;
+        income.data = bytes.concat(valid, hex"00");
+        _react(income);
+        assertEq(system.requestCount(), 0);
+        assertEq(reactive.remaining(), available);
+        assertEq(token.balanceOf(aliceRent), 0);
+
+        income.data = valid;
+        _react(income);
+        assertEq(system.requestCount(), 1);
+        assertTrue(_deliverLast());
+        assertEq(token.balanceOf(aliceRent), 300e6);
+        assertEq(token.balanceOf(aliceTax), 250e6);
+        assertEq(token.balanceOf(aliceSavings), 150e6);
+    }
+
+    function test_guardrailsReplayPerRunAndTotalCapAcrossDays() public {
+        _armAlice();
+        _policy(0, 400e6, 800e6, 0, 0, false);
+        vm.prank(alice);
+        split.setTotalBudget(address(token), true, 900e6);
+        vm.prank(bob);
+        split.setTotalBudget(address(token), false, 0);
+
+        IReactive.LogRecord memory income = _transferLog(employer, alice, PAYCHECK, 601, 0);
+        _react(income);
+        assertTrue(_deliverLast());
+        uint256 beforeReplay = token.balanceOf(alice);
+        _react(income);
+        assertEq(system.requestCount(), 1);
+        assertTrue(_deliverLast());
+        assertEq(token.balanceOf(alice), beforeReplay);
+        uint256 remaining = split.totalBudgetPlusOne(alice, address(token)) - 1;
+        assertEq(remaining, 500e6);
+
+        _react(_transferLog(employer, alice, PAYCHECK, 601, 1));
+        assertEq(system.requestCount(), 2);
+        assertTrue(_deliverLast());
+        remaining = split.totalBudgetPlusOne(alice, address(token)) - 1;
+        assertEq(remaining, 100e6);
+        vm.warp((block.timestamp / 1 days + 1) * 1 days);
+
+        (, uint256 retained,) = split.previewExecution(alice, address(token), PAYCHECK);
+        assertEq(retained, PAYCHECK - 100e6);
+        vm.prank(alice);
+        split.recoverSplit(address(token), PAYCHECK, 602, 0);
+        remaining = split.totalBudgetPlusOne(alice, address(token)) - 1;
+        assertEq(remaining, 0);
+        uint256 atCap = token.balanceOf(alice);
+        _manual();
+        _react(_transferLog(employer, alice, PAYCHECK, 603, 0));
+        assertTrue(_deliverLast());
+        assertEq(token.balanceOf(alice), atCap + PAYCHECK);
+        assertEq(token.balanceOf(aliceRent), 700e6);
+        assertEq(token.balanceOf(aliceTax), 200e6);
+        assertEq(token.balanceOf(aliceSavings), 0);
+    }
 }

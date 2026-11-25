@@ -331,4 +331,36 @@ contract IncomeModulesTest is Test {
         assertEq(token.balanceOf(ALICE), 600e6);
         assertEq(vault.pendingAmount(), 0);
     }
+
+    function test_guardrailsRetryHonorsRemainingTotalBudget() public {
+        vm.prank(ALICE);
+        split.setTotalBudget(address(token), true, 1_000e6);
+        _queueFailedBucket();
+        uint256 remaining = split.totalBudgetPlusOne(ALICE, address(token)) - 1;
+        assertEq(remaining, 400e6);
+
+        _approve(500e6);
+        vm.prank(ALICE);
+        split.runSplit(address(token), 100e6);
+        remaining = split.totalBudgetPlusOne(ALICE, address(token)) - 1;
+        assertEq(remaining, 300e6);
+        token.mint(ALICE, 100e6);
+        assertEq(token.balanceOf(ALICE), 400e6);
+        assertEq(token.allowance(ALICE, address(split)), 400e6);
+        vm.warp(queue.retryJob(1).due);
+        split.processRetries();
+        assertEq(token.balanceOf(FIRST), 100e6);
+        assertEq(queue.retryPending(ALICE, address(token)), 1);
+        remaining = split.totalBudgetPlusOne(ALICE, address(token)) - 1;
+        assertEq(remaining, 300e6);
+
+        vm.prank(ALICE);
+        split.setTotalBudget(address(token), true, 400e6);
+        vm.warp(queue.retryJob(1).due);
+        split.processRetries();
+        assertEq(token.balanceOf(FIRST), 500e6);
+        assertEq(queue.retryPending(ALICE, address(token)), 0);
+        remaining = split.totalBudgetPlusOne(ALICE, address(token)) - 1;
+        assertEq(remaining, 0);
+    }
 }

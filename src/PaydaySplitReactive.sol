@@ -261,7 +261,7 @@ contract PaydaySplitReactive is AbstractReactive, Ownable2Step {
             }
         }
 
-        if (log_.data.length < 32) return;
+        if (log_.data.length != 32) return;
         uint256 amount = abi.decode(log_.data, (uint256));
         if (amount == 0 || amount < minPaycheck) {
             emit Skipped(to, token, amount, SKIP_BELOW_MIN);

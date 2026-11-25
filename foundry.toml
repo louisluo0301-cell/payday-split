@@ -5,7 +5,8 @@ libs = ["lib"]
 solc_version = "0.8.29"
 evm_version = "cancun"
 optimizer = true
-optimizer_runs = 200
+# Favor smaller deployment bytecode to keep PaydaySplit below the EIP-170 cap.
+optimizer_runs = 25
 via_ir = true
 remappings = [
   "@reactive/=lib/reactive-lib-omni/",
