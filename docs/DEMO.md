@@ -1,12 +1,10 @@
-> Historical video script (earlier UI, 62-test milestone). Current v7 behavior and validation are in UPGRADE-v7.md and TESTING.md; re-record before presenting new features.
+> Historical script for the earlier waterfall UI. The 1:53 v9 recording uses the Anvil workspace with English narration and embedded English subtitles. [Current video](https://raw.githubusercontent.com/louisluo0301-cell/payday-split/main/docs/payday-split-demo.mp4)
 
 # 3-minute demo video script — Reactive Income Waterfall
 
 **Target length:** 2:50–3:00. **Format:** 1920×1080, 30 fps. **Language:** Chinese narration + English subtitles.
 
-> **Recorded:** `docs/payday-split-demo.mp4` (2:57, local Anvil, Chinese narration + English subtitles).
->
-> **Status:** the v1 savings-only video is archived in git history; this is the waterfall version.
+> The 2:57 waterfall recording and the earlier savings-only recording are available in Git history.
 
 ---
 

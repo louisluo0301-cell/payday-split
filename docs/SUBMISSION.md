@@ -1,6 +1,6 @@
 # DoraHacks submission draft — Reactive Income Waterfall
 
-> Replace every `<...>` before submitting. Delete this note.
+The build, video, and testnet evidence fields are ready to copy. Complete the entrant and contact fields in DoraHacks.
 
 ## Form fields
 
@@ -18,20 +18,18 @@
 >
 > | Contract | Network | Address |
 > |---|---|---|
-> | PaydaySplitReactive | Lasna | `<0x...>` |
-> | PaydaySplit | Sepolia (11155111) | `<0x...>` |
-> | DemoUSDC (or USDC) | Sepolia (11155111) | `<0x...>` |
-> | Callback Proxy | Sepolia | `0xAa14d9Cd0f788Ca23d11805986C1d8bd035D23b4` |
->
-> Explorer: `https://lasna.reactscan.net/address/<REACTIVE>` and `https://sepolia.etherscan.io/address/<SPLIT>`.
+> | PaydaySplitReactive | Lasna | [`0xFfA5C8A1FD3c45afc0936cD21d12D14a8f513b0c`](https://lasna.reactscan.net/address/0xFfA5C8A1FD3c45afc0936cD21d12D14a8f513b0c) |
+> | PaydaySplit | Sepolia (11155111) | [`0x2742Df5C6Fac4A7FF8D1d20D7D9bB8f020bF375F`](https://sepolia.etherscan.io/address/0x2742Df5C6Fac4A7FF8D1d20D7D9bB8f020bF375F) |
+> | DemoUSDC | Sepolia (11155111) | [`0xF08fD050eef4b0d74e81300aeC188B5218157Ff2`](https://sepolia.etherscan.io/address/0xF08fD050eef4b0d74e81300aeC188B5218157Ff2) |
+> | Callback Proxy | Sepolia | [`0xAa14d9Cd0f788Ca23d11805986C1d8bd035D23b4`](https://sepolia.etherscan.io/address/0xAa14d9Cd0f788Ca23d11805986C1d8bd035D23b4) |
 
 **Transaction hashes showing the full loop, from origin event to callback.**
 
-> 1. Origin `Transfer` (Sepolia): `<0x...>`
-> 2. Lasna `react()` / `CallbackRequested`: `<0x...>`
-> 3. Destination callback (`Split` + `Retained`): `<0x...>`
+> 1. [Sepolia income `Transfer`](https://sepolia.etherscan.io/tx/0x5407766076d2a9131a7fdd622dd15be693e3b3aec9f672399907e51d0d700fd6) — block 12194576, log 24.
+> 2. [Lasna `react()` and callback request](https://lasna.reactscan.net/tx/0x9eaceb9638091341be225bf5dc939a35bacb24b5babb3e035a40cd72ee56fa08) — block 9042558.
+> 3. [Sepolia callback with `Split` and `Retained`](https://sepolia.etherscan.io/tx/0x66913a9758316f8c1f94fe997af744cb97f82905a3e3eeaf55edb1705c6fb21f) — block 12194577.
 >
-> The `Split` events contain `(originTxHash, logIndex, version)` and link back to the origin `Transfer`. `Retained` shows the amount left in the wallet.
+> The testnet payout routed 300 dUSDC and retained 700 dUSDC from a 1,000 dUSDC income. The destination events carry the source hash and log index. [Structured evidence](../deployments/paydaysplit-sepolia-lasna.evidence.json)
 
 **For Every Second Counts: what full-loop latency did you measure, and how?**
 
@@ -67,7 +65,7 @@
 >
 > **Built during the buildathon.** Contracts, deployment/verification scripts, UI, local Anvil harness, and docs were written for this event. The public Reactive starter/library is used as a dependency.
 >
-> **Evidence.** 98/98 Foundry tests (87 core, 11 observer/token), 33/33 frontend tests and production build; local Anvil full-loop demo; one-command testnet deploy + `verify.ps1`. A separate camp observer has verified Sepolia/Lasna evidence in `notes/2026-11-18-first-transfer-monitor.md`; the product's real destination callback and payout remain pending. Repo: `https://github.com/louisluo0301-cell/payday-split`.
+> **Evidence.** The repository records 109 Foundry and 53 frontend tests. The public testnet evidence covers the single-bucket payout above. The v9 local demo shows the three-bucket waterfall routing 700 dUSDC and retaining 300 dUSDC. [Local loop evidence](../deployments/31337.evidence.json)
 
 **GitHub / GitLab / Bitbucket**
 
@@ -75,7 +73,11 @@
 
 **Video**
 
-> `<https://youtu.be/...>` — upload `docs/payday-split-demo.mp4` (2:57, local Anvil, Chinese narration + English subtitles) and paste the URL.
+> 1:53, v9 dashboard on local Anvil, with English narration and embedded English subtitles. [MP4](https://raw.githubusercontent.com/louisluo0301-cell/payday-split/main/docs/payday-split-demo.mp4)
+
+**AI assistance**
+
+> Codex operated the browser during the recording and generated the English narration and subtitles. The recording was checked against the Anvil transaction receipts, and the subtitled export was checked against the original audio. The payout follows the configured Solidity rules.
 
 **Website**
 
@@ -111,11 +113,9 @@
 
 ## Judge quick path
 
-1. `forge test` → 98/98 (87 core + 11 observer/token); run frontend tests in `web` → 33/33.
-2. Open the three transactions above.
-3. Lasna: `getRule(user, token)` → 3 payees, version, `subscribed=true`.
-4. Destination: `bucketCount(user, token)` → 3; `ruleVersion` → 1; `getBuckets` → rent/tax/savings.
-5. `Split` events: 300 + 250 + 150; `Retained`: 300.
+1. Run `forge test` from the repository root and `npm test` from `web`.
+2. Open the three public testnet transactions above. The Sepolia callback shows a 300 dUSDC payout and 700 dUSDC retained.
+3. Play the v9 video or follow the [local reproduction steps](workspace/README.md). The local callback routes 300 + 250 + 150 dUSDC and retains 300 dUSDC.
 
 ---
 
@@ -123,8 +123,8 @@
 
 - [ ] Public GitHub repo, MIT, no `.env`/private keys.
 - [ ] `deployments/<chainId>.json` filled; `web/public/deployments.json` matches.
-- [ ] Three transaction hashes verified in a fresh browser.
-- [ ] Video re-recorded for the waterfall UI, ≤ 3:00, English subtitles.
-- [ ] README evidence table filled.
+- [x] Three successful transaction receipts checked through public Sepolia and Lasna RPCs.
+- [x] Video re-recorded for the v9 UI, under 3:00, with English narration and subtitles.
+- [x] README includes the deployed addresses and transaction references.
 - [ ] DoraHacks Build created; track = Set It and Forget It.
 - [ ] Submit before **2026-12-06 04:00 Beijing time** (2026-12-05 20:00 UTC).

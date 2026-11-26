@@ -74,7 +74,7 @@ Foundry 验收覆盖正常触发、错误事件拒绝、两端重放、跨日额
 
 ![Payday receipt](docs/receipt-example.png)
 
-> **v9 update:** the [income modules](docs/income-modules/README.md) add bounded retries, native ETH receiving through WETH, Aave V3 savings, withdrawal cooldowns and test USDC collection. The [dashboard workspace](docs/workspace/README.md) ties asset plans and payout evidence together. The demo video and images above show an earlier version.
+> **v9 update:** the [income modules](docs/income-modules/README.md) add bounded retries, native ETH receiving through WETH, Aave V3 savings, withdrawal cooldowns and test USDC collection. The [dashboard workspace](docs/workspace/README.md) ties asset plans and payout evidence together. The v9 video below shows the current workspace.
 
 ## English quick read
 
@@ -84,7 +84,7 @@ Foundry 验收覆盖正常触发、错误事件拒绝、两端重放、跨日额
 - **Verified on Sepolia and Lasna.** The single-bucket testnet run paid 300 dUSDC and retained 700 dUSDC from a 1,000 dUSDC test income. [Testnet proof](deployments/paydaysplit-sepolia-lasna.evidence.json) · [Local full loop](deployments/31337.evidence.json)
 - **No-wallet demo:** `cd web && npm install && npm run dev`, then open `/?demo=1`.
 - **Local full loop:** `pwsh ./script/local-demo.ps1`; run `npm run local:watch` in `web/` for ongoing callbacks. Use `-Port` for a separate instance or `-Reset` to clear a disposable Anvil.
-- **Video:** `docs/payday-split-demo.mp4` (2:57, local Anvil; Chinese narration + English subtitles).
+- **Demo video:** 1:53 of the v9 workspace on local Anvil, with English narration and English subtitles. [Watch or download the MP4](https://raw.githubusercontent.com/louisluo0301-cell/payday-split/main/docs/payday-split-demo.mp4).
 - **Shareable receipt:** each run has a **Receipt** button that downloads a 1200×630 PNG (income, buckets, retained, tx hash) for a submission card or social post.
 
 | Evidence | Status |
@@ -345,13 +345,13 @@ pwsh ./script/verify.ps1
 
 ## 7. 已部署地址
 
-> 当前状态：本地 Anvil demo 已完成；测试网部署按本次交付选择暂缓。运行 `script/deploy.ps1` 后把下面替换为真实地址。
+下表对应 2026-11-23 在 Sepolia → Lasna → Sepolia 执行的单桶分账。[三笔交易及验收数据](deployments/paydaysplit-sepolia-lasna.evidence.json)
 
 | 网络 | 合约 | 地址 |
 |---|---|---|
-| Sepolia (11155111) | DemoUSDC | `TBD` |
-| Sepolia (11155111) | PaydaySplit | `TBD` |
-| Lasna (5318007) | PaydaySplitReactive | `TBD` |
+| Sepolia (11155111) | DemoUSDC | [`0xF08fD050eef4b0d74e81300aeC188B5218157Ff2`](https://sepolia.etherscan.io/address/0xF08fD050eef4b0d74e81300aeC188B5218157Ff2) |
+| Sepolia (11155111) | PaydaySplit | [`0x2742Df5C6Fac4A7FF8D1d20D7D9bB8f020bF375F`](https://sepolia.etherscan.io/address/0x2742Df5C6Fac4A7FF8D1d20D7D9bB8f020bF375F) |
+| Lasna (5318007) | PaydaySplitReactive | [`0xFfA5C8A1FD3c45afc0936cD21d12D14a8f513b0c`](https://lasna.reactscan.net/address/0xFfA5C8A1FD3c45afc0936cD21d12D14a8f513b0c) |
 | Sepolia (11155111) | Callback Proxy | `0xAa14d9Cd0f788Ca23d11805986C1d8bd035D23b4` |
 
 ---
@@ -391,8 +391,8 @@ pwsh ./script/verify.ps1
 - [代码勘误与依赖安全公告](docs/CODE-REVIEW-v7.md)
 - [架构与 waterfall 算法](docs/ARCHITECTURE.md)
 - [安全模型与已知限制](docs/SECURITY.md)
-- [2:57 演示视频（本地 Anvil）](docs/payday-split-demo.mp4)
-- [演示视频脚本](docs/DEMO.md)
+- [1:53 v9 演示视频（本地 Anvil，英文配音和字幕）](https://raw.githubusercontent.com/louisluo0301-cell/payday-split/main/docs/payday-split-demo.mp4)
+- [早期版本演示视频脚本](docs/DEMO.md)
 - [部署手册](docs/DEPLOY.md)
 - [DoraHacks 提交草稿](docs/SUBMISSION.md)
 - [社区开放任务 5 个方向](docs/COMMUNITY_TASKS.md)
