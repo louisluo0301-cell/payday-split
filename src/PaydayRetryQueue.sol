@@ -28,6 +28,11 @@ contract PaydayRetryQueue {
         uint8 attempts;
     }
 
+    struct QueueLinks {
+        uint256 previous;
+        uint256 next;
+    }
+
     enum RetryResult {
         Wait,
         Paid,
@@ -37,9 +42,10 @@ contract PaydayRetryQueue {
     address public immutable split;
     mapping(address => mapping(address => uint256)) public retryPending;
     mapping(uint256 => RetryJob) private _retryJobs;
-    mapping(uint256 => uint256) private _retrySlots;
+    mapping(uint256 => QueueLinks) private _links;
     uint256 private _retryHead;
     uint256 private _retryTail;
+    uint256 private _retryLength;
     uint256 public nextRetryId;
 
     event RetryQueued(
@@ -72,7 +78,7 @@ contract PaydayRetryQueue {
     }
 
     function retryQueueLength() external view returns (uint256) {
-        return _retryTail - _retryHead;
+        return _retryLength;
     }
 
     function enqueue(RetryOrigin calldata origin, uint256 epoch, uint64 period, uint8 index, uint256 amount)
@@ -81,7 +87,7 @@ contract PaydayRetryQueue {
         returns (bool)
     {
         if (
-            _retryTail - _retryHead >= RETRY_CAPACITY || retryPending[origin.user][origin.token] >= RETRY_USER_CAPACITY
+            _retryLength >= RETRY_CAPACITY || retryPending[origin.user][origin.token] >= RETRY_USER_CAPACITY
                 || amount == 0 || amount > type(uint96).max
                 || (block.timestamp + RETRY_DELAY) / 1 days != block.timestamp / 1 days
         ) {
@@ -90,7 +96,7 @@ contract PaydayRetryQueue {
         uint256 id = ++nextRetryId;
         uint64 due = uint64(block.timestamp + RETRY_DELAY);
         _retryJobs[id] = RetryJob(origin, epoch, period, due, uint96(amount), index, 0);
-        _retrySlots[_retryTail++] = id;
+        _append(id);
         ++retryPending[origin.user][origin.token];
         emit RetryQueued(origin.user, origin.token, id, origin.txHash, origin.logIndex, index, amount, due);
         return true;
@@ -98,8 +104,38 @@ contract PaydayRetryQueue {
 
     function cancel(uint256 id, address account) external onlySplit {
         RetryJob memory job = _retryJobs[id];
-        if (job.origin.user != account) revert RetryOwnerRequired();
+        if (job.amount == 0 || job.origin.user != account) revert RetryOwnerRequired();
+        _unlink(id);
         _close(id, job, 4);
+    }
+
+    function _append(uint256 id) private {
+        uint256 tail = _retryTail;
+        if (tail == 0) {
+            _retryHead = id;
+        } else {
+            _links[tail].next = id;
+            _links[id].previous = tail;
+        }
+        _retryTail = id;
+        ++_retryLength;
+    }
+
+    // Removing a cancelled job in place makes its capacity immediately available.
+    function _unlink(uint256 id) private {
+        QueueLinks memory link = _links[id];
+        if (link.previous == 0) {
+            _retryHead = link.next;
+        } else {
+            _links[link.previous].next = link.next;
+        }
+        if (link.next == 0) {
+            _retryTail = link.previous;
+        } else {
+            _links[link.next].previous = link.previous;
+        }
+        delete _links[id];
+        --_retryLength;
     }
 
     function _close(uint256 id, RetryJob memory job, uint8 result) private {
@@ -109,12 +145,11 @@ contract PaydayRetryQueue {
     }
 
     function process() external onlySplit {
-        for (uint256 i; i < RETRIES_PER_CALLBACK && _retryHead < _retryTail; ++i) {
-            uint256 id = _retrySlots[_retryHead];
+        for (uint256 i; i < RETRIES_PER_CALLBACK && _retryHead != 0; ++i) {
+            uint256 id = _retryHead;
             RetryJob memory job = _retryJobs[id];
-            if (job.amount != 0 && job.due > block.timestamp) break;
-            delete _retrySlots[_retryHead++];
-            if (job.amount == 0) continue;
+            if (job.due > block.timestamp) break;
+            _unlink(id);
             RetryResult result = IRetryExecutor(split).performRetry(job);
             if (result == RetryResult.Paid) {
                 _close(id, job, 1);
@@ -127,7 +162,7 @@ contract PaydayRetryQueue {
             } else {
                 job.due = uint64(block.timestamp + RETRY_DELAY);
                 _retryJobs[id] = job;
-                _retrySlots[_retryTail++] = id;
+                _append(id);
                 emit RetryAttempt(id, job.attempts, job.due);
             }
         }

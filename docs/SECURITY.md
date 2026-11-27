@@ -118,7 +118,7 @@ Residual risk: a malicious token can still emit fake `Transfer` logs or lie abou
 ## 3. Known limitations
 
 1. **Fee-on-transfer / rebasing tokens are unsupported.** The contract routes the event amount. A fee-on-transfer token may cause `SKIP_INSUFFICIENT_BALANCE` or deliver less than the event amount.
-2. **Callback liveness.** Callbacks can fail, be delayed, or be dropped if the callback contract is in debt. A failed callback still costs gas. The origin event is marked as processed, so the same paycheck is not retried automatically.
+2. **Callback liveness.** Callbacks can fail, be delayed, or be dropped if the callback contract is in debt. A failed callback can still cost gas. An entire reverted callback rolls back the processed flag. Confirm the origin is unprocessed before using receipt-based recovery. A successful callback with a skipped allocation can queue an eligible retry.
 3. **Stale callbacks are dropped.** If the user edits the rule while a paycheck is in flight, the old version is rejected. This is deliberate; the user can re-trigger or accept the missed run.
 4. **Rules set before deployment are missed.** `BucketsSet` events emitted before the Reactive contract exists are not replayed. Set the rule after deployment.
 5. **Owner trust.** The owner can pause, rescue accidentally sent tokens/ETH, and bind the Reactive address once. The owner cannot move user principal or rewrite a user's bucket list. In production the owner should be a multisig/timelock.
@@ -127,6 +127,18 @@ Residual risk: a malicious token can still emit fake `Transfer` logs or lie abou
 8. **Frontend trust.** A phishing site can show a different contract address. Verify `deployments/<chainId>.json` and the explorer.
 9. **Reorgs.** Replay protection is per `(txHash, logIndex)`. A reorg that changes the tx hash produces a new key; the Reactive network's finality assumptions apply.
 10. **Malicious token/payee.** A user can set an arbitrary token/payee. A malicious token can revert or reenter; `nonReentrant` and `_tryTransferFrom` reduce but do not eliminate token risk. Only use trusted tokens.
+
+## Production launch
+
+The published Sepolia → Lasna → Sepolia receipts cover the single-destination payout recorded on November 23, 2026. The current queue behavior and the three-destination flow have local tests. Publish the current build and run an equivalent public testnet acceptance run before promoting a release.
+
+| Area | What to verify before mainnet |
+|---|---|
+| Contracts and ownership | Obtain an independent audit of the exact bytecode and deployment. Exercise the production admin's pause, fee top-up, key rotation and incident procedures. |
+| Reviewed payments | Enforce the reviewed rule version and user-approved payout constraints on-chain. The current UI checks the quote before requesting a signature. The existing `runSplit` still reads the saved configuration when the transaction executes. |
+| Settlement and retry | Re-run public callbacks against supported assets and fresh recipient addresses. Verify fee balances, gas budgets, full and partial payouts, duplicate events and queue recovery. |
+| Optional integrations | Validate Aave and CCTP end to end for each enabled asset and network. |
+| Operations | Assign ownership for health alerts, receipt reconciliation, emergency pauses and recovery. The workspace health checks run in-page. |
 
 ## 4. Deployment checklist
 

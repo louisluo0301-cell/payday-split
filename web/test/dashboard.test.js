@@ -16,7 +16,8 @@ test('demo dashboard boots, saves controls, respects pause and manages allowance
   try {
     await import('../src/main.js');
     const $ = s => window.document.querySelector(s);
-    assert.match($('#network-label').textContent,/Demo/);
+    assert.match($('#network-label').textContent,/Simulation/);
+    assert.equal($('#hero-demo').hash, '#proof');
     assert.equal($('#workspace-next-action').dataset.action, 'sample');
     const sample = $('#sample-input');
     sample.value = '0';

@@ -15,6 +15,7 @@ const payee = address(4);
 const other = address(5);
 const sourceHash = '0x' + 'ab'.repeat(32);
 const callbackHash = '0x' + 'bc'.repeat(32);
+const reactionHash = '0x' + 'cd'.repeat(32);
 const transfer = new Interface(['event Transfer(address indexed from,address indexed to,uint256 value)']);
 
 function log(index, { from = payer, to = account, amount = 1_000_000n, emitter = token } = {}) {
@@ -70,6 +71,9 @@ test('the recovery UI requires an explicit transfer and rechecks processing and 
   const $ = selector => document.querySelector(selector);
   let processed = false;
   let quoteAmount = 10_000_000n;
+  let reaction = null;
+  let groups = [];
+  let retryHistoryUnavailable = false;
   const sent = [];
   const notifications = [];
   const provider = {
@@ -83,10 +87,25 @@ test('the recovery UI requires an explicit transfer and rechecks processing and 
     previewExecution: async (_, __, amount) => [[quoteAmount], amount - quoteAmount, 0n],
     getBuckets: async () => [{ payee }],
   };
-  const ctx = { account, token, chainId: 11155111, decimals: 6, symbol: 'dUSDC', split, provider, txLink: () => '' };
+  const ctx = {
+    account, token, chainId: 11155111, decimals: 6, symbol: 'dUSDC', split, provider,
+    txLink: hash => `https://sepolia.etherscan.io/tx/${hash}`,
+    reactiveTxLink: hash => `https://lasna.reactscan.net/tx/${hash}`,
+  };
   const panel = createIncomeTrace({
-    $, context: () => ctx, readReactive: async () => { throw new Error('unavailable'); },
-    readActivity: async () => [],
+    $, context: () => ctx,
+    readReactive: async () => {
+      if (!reaction) throw new Error('reaction unavailable');
+      return reaction;
+    },
+    readActivity: async () => {
+      if (!groups) throw new Error('payout logs unavailable');
+      return groups;
+    },
+    readRetries: async () => {
+      if (retryHistoryUnavailable) throw new Error('retry logs unavailable');
+      return null;
+    },
     recover: async (_, income) => { sent.push(income); processed = true; },
     toast: message => notifications.push(message),
   });
@@ -110,22 +129,44 @@ test('the recovery UI requires an explicit transfer and rechecks processing and 
     await until(() => !$('#trace-recover').disabled);
     assert.match($('#trace-steps').textContent, /Could not read callback status/);
     assert.match($('#trace-steps').textContent, /25\.000003 dUSDC/);
+    assert.equal($('#trace-steps').children[1].dataset.status, 'unknown');
+    assert.equal($('#trace-steps').children[2].dataset.status, 'unprocessed');
 
     quoteAmount = 12_000_000n;
+    reaction = { requested: false };
     $('#trace-recover').click();
     await until(() => !$('#trace-recover').disabled && notifications.length === 1);
     assert.equal(sent.length, 0);
     assert.match($('#trace-preview').textContent, /12\.0 dUSDC routed/);
+    assert.match($('#trace-steps').children[1].textContent, /No callback request is recorded/);
+    assert.equal($('#trace-steps').children[1].dataset.status, 'unrequested');
 
+    reaction = { requested: true, txHash: null };
+    groups = null;
     $('#trace-recover').click();
     await until(() => $('#trace-steps').textContent.includes('marked processed'));
     assert.equal(sent.length, 1);
     assert.equal(sent[0].logIndex, 7);
     assert.equal(sent[0].amount, 25_000_003n);
     assert.equal($('#trace-recover').hidden, true);
+    assert.match($('#trace-steps').children[1].textContent, /Callback requested.*link is unavailable/);
+    assert.equal($('#trace-steps').children[1].dataset.status, 'done');
+    assert.equal($('#trace-steps').children[1].querySelector('a'), null);
+    assert.equal($('#trace-steps').children[2].dataset.status, 'incomplete');
+    assert.match($('#trace-steps').children[2].textContent, /did not verify payout amounts/);
 
+    reaction = { requested: true, txHash: reactionHash };
+    groups = [{
+      originHash: sourceHash, logIndex: 7, blockNumber: 10, paycheck: 25_000_003n,
+      totalRouted: 12_000_000n, retained: 13_000_003n, skipped: 1, txHash: callbackHash,
+    }];
+    retryHistoryUnavailable = true;
     panel.open(sourceHash, 7);
-    await until(() => $('#trace-steps').textContent.includes('marked processed'));
+    await until(() => $('#trace-steps').children[2]?.dataset.status === 'partial');
+    assert.equal($('#trace-steps').children[1].querySelector('a').href, ctx.reactiveTxLink(reactionHash));
+    assert.equal($('#trace-steps').children[2].querySelector('a').href, ctx.txLink(callbackHash));
+    assert.match($('#trace-steps').children[2].textContent, /12\.0 dUSDC routed.*1 bucket skipped/);
+    assert.match($('#trace-steps').children[3].textContent, /Retry history is limited or unavailable/);
     assert.equal($('#trace-recover').hidden, true);
     assert.equal(sent.length, 1);
   } finally {

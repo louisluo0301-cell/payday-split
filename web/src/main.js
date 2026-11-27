@@ -264,6 +264,11 @@ const manualPayment = createManualPayment({
   $, context: () => ({ ...incomeTraceContext(), network: networkName() }),
   readQuote: readManualQuote, pay: submitManualPayment, labelFor, errorMessage: humanError,
   jumpToTrace: () => jumpTo("#trace-hash"),
+  jumpToHistory: () => jumpTo("#activity-heading"),
+  onTrackingChange: renderWorkspace,
+  onConfirmation: (ctx, receipt) => {
+    if (ctx.signer === state.signer) void refreshAll({ afterBlock: receipt.blockNumber });
+  },
 });
 
 /* ------------------------------------------------------------------ */
@@ -370,7 +375,10 @@ function renderWorkspace() {
   setText('workspace-allowance', state.savedActive === null ? 'Checking'
     : state.allowance === 0n ? 'Required' : state.allowance === MaxUint256 ? 'Unlimited' : 'Set');
   setText('workspace-health', { ready: 'Verified', blocked: 'Blocked', attention: 'Needs attention', inactive: 'Inactive' }[report?.status] ?? 'Check needed');
-  $('#run-now').disabled = !state.demoMode && (!connected || state.syncStatus !== 'ready' || !state.savedActive || state.dirty);
+  const paymentPending = connected && manualPayment.hasPending();
+  setText('run-now', paymentPending ? 'Check manual payment' : 'Review new payment');
+  $('#run-now').disabled = !state.demoMode && !paymentPending
+    && (!connected || state.syncStatus !== 'ready' || !state.savedActive || state.dirty);
 }
 
 async function runWorkspaceAction() {
@@ -1775,12 +1783,14 @@ async function revokeAllowance() {
 
 function runNow() {
   if (state.demoMode) { runDemoIncome(); return; }
-  if (!state.signer || state.busy || state.syncStatus !== "ready" || state.dirty || !state.savedActive) return;
+  if (!state.signer) return;
+  if (!manualPayment.hasPending() && (state.busy || state.syncStatus !== "ready" || state.dirty || !state.savedActive)) return;
   manualPayment.open($("#sample-input").value);
 }
 
 async function readManualQuote(ctx, amount) {
-  if (!ctx.signer || ctx.signer !== state.signer || state.dirty || policyDirty || state.draftAllocationMode !== state.allocationMode) {
+  if (!ctx.signer || ctx.signer !== state.signer || state.syncStatus !== "ready" || state.dirty || policyDirty
+    || state.draftAllocationMode !== state.allocationMode) {
     throw new Error("Save your changes and check the current plan before reviewing a payment.");
   }
   const at = { blockTag: await ctx.provider.send('eth_blockNumber', []) };
@@ -1797,23 +1807,30 @@ async function readManualQuote(ctx, amount) {
   return quote;
 }
 
-async function submitManualPayment({ ctx, amount, quote }, isCurrent) {
+async function submitManualPayment({ ctx, amount, quote }, isCurrent, onSigning) {
   if (state.busy) throw new Error('Finish the current wallet action first.');
   state.busy = true;
   try {
     const latest = await readManualQuote(ctx, amount);
-    if (paymentQuoteKey(quote) !== paymentQuoteKey(latest)) return latest;
+    if (paymentQuoteKey(quote) !== paymentQuoteKey(latest)) return { quote: latest };
+    const request = await ctx.split.runSplit.populateTransaction(ctx.token, amount);
+    const startBlock = await ctx.provider.getBlockNumber();
     await verifyWalletContext(ctx.injected, chainId, ctx.account);
     if (!isCurrent(ctx) || state.dirty || policyDirty || state.draftAllocationMode !== state.allocationMode) {
       throw new Error('Your wallet or plan changed. Preview the payment again.');
     }
-    const tx = await ctx.split.connect(ctx.signer).runSplit(ctx.token, amount);
-    toast("New payment submitted.", false, tx.hash);
-    const receipt = await tx.wait();
-    if (isCurrent(ctx)) {
-      toast("Payment confirmed. Review the actual payout in History.", false, tx.hash);
-      await refreshAll({ afterBlock: receipt.blockNumber });
-    }
+    onSigning();
+    // Track the wallet's broadcast hash before an RPC has indexed the transaction.
+    const hash = await ctx.signer.sendUncheckedTransaction(request);
+    return { transaction: {
+      hash,
+      async wait(confirmations, timeout) {
+        const response = await ctx.provider.getTransaction(hash);
+        return response
+          ? response.replaceableTransaction(startBlock).wait(confirmations, timeout)
+          : ctx.provider.waitForTransaction(hash, confirmations, timeout);
+      },
+    } };
   } finally {
     state.busy = false;
   }
@@ -2175,9 +2192,10 @@ function boot() {
 
   if (!configured && !assetProfile.invalid) {
     setText('connect-top', 'Open demo');
-    setText('connect-hero', 'Open demo');
-    $('#hero-demo').href = '#how';
-    setText('hero-demo', 'How it works');
+    setText('connect-hero', 'Try interactive demo');
+    setText('network-label', 'Demo available · testnet setup optional');
+    $('#hero-demo').href = '#proof';
+    setText('hero-demo', 'View testnet proof');
   }
 
   if (state.demoMode) {
@@ -2190,13 +2208,13 @@ function boot() {
     state.demoToken = true;
     state.buckets = clonePreset("freelancer");
 
-    $('#hero-demo').href = '#how';
-    setText('hero-demo', 'How it works');
-    setText("network-label", "Demo mode");
+    $('#hero-demo').href = '#proof';
+    setText('hero-demo', 'View testnet proof');
+    setText("network-label", "Simulation · no wallet required");
     setText("wallet-label", "Demo mode");
     $("#wallet-chip").classList.add("connected");
-    setText("connect-top", "Demo");
-    setText("connect-hero", "See a sample split ↗");
+    setText("connect-top", "Workspace");
+    setText("connect-hero", "Open sample workspace");
 
     updateModeUI();
     renderBuckets();
