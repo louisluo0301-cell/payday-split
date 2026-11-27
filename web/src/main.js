@@ -16,7 +16,7 @@ import { collectAutomationHealth, demoHealthReport } from "./automation-health.j
 import { createHealthPanel } from "./health-panel.js";
 import { createIncomeTrace } from "./income-trace.js";
 import { groupWaterfallEvents, incomeTransfers, matchedPayout, recoveryQuote } from "./income-evidence.js";
-import { createIncomeModules } from "./income-modules.js";
+import { createIncomeModules, SAMPLE_SAVINGS_DESTINATION } from "./income-modules.js";
 import { wireCctpCollection } from "./cctp-collection.js";
 import { selectDeploymentAsset } from "./deployment-assets.js";
 import { switchWalletChain, verifyWalletContext } from "./wallet-context.js";
@@ -251,6 +251,7 @@ const incomeModules = createIncomeModules({
   setWalletBusy: value => { state.busy = value; },
   refreshWorkspace: refreshAll,
   stageBucket: stageModuleBucket,
+  onSavingsChange: renderBucketDestinations,
 });
 let healthReadId = 0;
 let activityReadId = 0;
@@ -840,7 +841,7 @@ function incomeTraceContext() {
   };
 }
 
-function stageModuleBucket(address, label) {
+function stageModuleBucket(address, label, destination) {
   if (state.busy) return;
   if (state.buckets.some(bucket => bucket.payee.toLowerCase() === address.toLowerCase())) {
     toast("This destination is already in the draft.");
@@ -850,7 +851,11 @@ function stageModuleBucket(address, label) {
     toast("Remove a destination before adding a module.", true);
     return;
   }
-  state.buckets.push({ label, payee: address, fixed: "", bps: "", active: false });
+  if (destination === 'aave' && state.buckets.some(bucket => bucketDestination(bucket) === 'aave')) {
+    toast("This plan already has an Aave destination.", true);
+    return;
+  }
+  state.buckets.push({ label, payee: address, fixed: "", bps: "", active: false, destination });
   state.dirty = true;
   renderBuckets();
   updateSummary();
@@ -956,18 +961,32 @@ function renderBuckets() {
       <div class="bucket-identity">
         <input class="bucket-label" data-i="${index}" data-f="label" type="text" aria-label="Bucket label"
           placeholder="Label (rent, tax, design)" autocomplete="off" value="${escapeAttr(bucket.label || "")}" />
+        <select class="bucket-destination-select" data-destination="${index}" aria-label="Destination type for bucket ${index + 1}">
+          <option value="wallet">Wallet transfer</option>
+          <option value="aave">Aave V3 supply</option>
+        </select>
         <input class="bucket-payee" data-i="${index}" data-f="payee" type="text" aria-label="Bucket payee address"
           placeholder="0x… payee" autocomplete="off" spellcheck="false" value="${escapeAttr(bucket.payee)}" />
+        <div class="bucket-savings" hidden>
+          <p class="bucket-savings-note" role="status"></p>
+          <button class="btn btn-small btn-outline bucket-savings-action" data-savings-action="${index}" type="button" hidden></button>
+        </div>
       </div>
       <div class="bucket-amounts">
-        <label class="bucket-input">
-          <input data-i="${index}" data-f="fixed" type="text" inputmode="decimal" aria-label="Fixed amount in ${escapeAttr(state.symbol)}"
-            placeholder="fixed" value="${escapeAttr(bucket.fixed)}" />
+        <label class="bucket-amount-field">
+          <span class="bucket-amount-caption">Fixed amount</span>
+          <span class="bucket-input">
+            <input data-i="${index}" data-f="fixed" type="text" inputmode="decimal" aria-label="Fixed amount in ${escapeAttr(state.symbol)}"
+              placeholder="0" value="${escapeAttr(bucket.fixed)}" />
+          </span>
         </label>
-        <label class="bucket-input">
-          <input data-i="${index}" data-f="bps" type="text" inputmode="decimal" aria-label="Percentage for this destination"
-            placeholder="0" value="${escapeAttr(bucket.bps)}" />
-          <span class="bucket-suffix">%</span>
+        <label class="bucket-amount-field">
+          <span class="bucket-amount-caption">Percentage</span>
+          <span class="bucket-input">
+            <input data-i="${index}" data-f="bps" type="text" inputmode="decimal" aria-label="Percentage for this destination"
+              placeholder="0" value="${escapeAttr(bucket.bps)}" />
+            <span class="bucket-suffix" aria-hidden="true">%</span>
+          </span>
         </label>
       </div>
       <label class="bucket-active" title="Include this bucket">
@@ -984,6 +1003,87 @@ function renderBuckets() {
   });
 
   $("#add-bucket").disabled = state.buckets.length >= MAX_BUCKETS;
+  renderBucketDestinations();
+}
+
+function bucketDestination(bucket, savings = incomeModules.savingsDestination()) {
+  return bucket.destination === 'aave'
+    || (savings.address && bucket.payee.trim().toLowerCase() === savings.address.toLowerCase()) ? 'aave' : 'wallet';
+}
+
+function renderBucketDestinations() {
+  const savings = incomeModules.savingsDestination();
+  const chosen = state.buckets.findIndex(bucket => bucketDestination(bucket, savings) === 'aave');
+  const messages = {
+    sample: 'Simulated supply allocation.',
+    unsupported: 'Aave is unavailable for this asset.',
+    connect: 'Connect your wallet to set up supply.',
+    checking: 'Checking the configured adapter…',
+    unavailable: 'The configured Aave adapter could not be verified.',
+    create: 'Create a savings adapter for this wallet and asset.',
+    bind: 'Enable the adapter before saving this destination.',
+    ready: useLocal ? 'Local mock reserve · simulated supply.' : 'Your wallet receives aTokens. The supply rate varies.',
+    working: 'Waiting for your wallet or confirmation…',
+  };
+  const actions = { connect: 'Connect wallet', unavailable: 'Check setup', create: 'Create adapter', bind: 'Enable supply' };
+
+  for (const row of $("#buckets-list").children) {
+    const select = row.querySelector('[data-destination]');
+    if (!select) continue;
+    const index = Number(select.dataset.destination);
+    const bucket = state.buckets[index];
+    if (!bucket) continue;
+    const isSavings = bucketDestination(bucket, savings) === 'aave';
+    const savingsOption = select.options[1];
+    savingsOption.disabled = !isSavings && (savings.step === 'unsupported' || (chosen >= 0 && chosen !== index));
+    savingsOption.textContent = savings.step === 'unsupported' && !isSavings ? 'Aave V3 unavailable' : 'Aave V3 supply';
+    select.value = isSavings ? 'aave' : 'wallet';
+    const walletField = row.querySelector('.bucket-payee');
+    walletField.hidden = isSavings;
+    walletField.disabled = isSavings;
+    row.querySelector('.bucket-savings').hidden = !isSavings;
+    if (!isSavings) continue;
+
+    bucket.destination = 'aave';
+    if (!bucket.payee && (savings.step === 'ready' || savings.step === 'sample')) bucket.payee = savings.address;
+    const differs = savings.step === 'ready' && bucket.payee.toLowerCase() !== savings.address.toLowerCase();
+    const note = row.querySelector('.bucket-savings-note');
+    note.textContent = differs ? 'The bound adapter changed. Select Wallet transfer, then reselect Aave.' : messages[savings.step];
+    const action = row.querySelector('[data-savings-action]');
+    action.textContent = actions[savings.step] || '';
+    action.hidden = !actions[savings.step];
+    action.dataset.step = savings.step;
+    action.disabled = state.busy;
+  }
+}
+
+function setBucketDestination(index, destination) {
+  const bucket = state.buckets[index];
+  if (!bucket || state.busy || !['wallet', 'aave'].includes(destination) || bucketDestination(bucket) === destination) {
+    renderBucketDestinations();
+    return;
+  }
+  const savings = incomeModules.savingsDestination();
+  if (destination === 'aave') {
+    if (savings.step === 'unsupported' || state.buckets.some((other, i) => i !== index && bucketDestination(other, savings) === 'aave')) {
+      renderBucketDestinations();
+      return;
+    }
+    bucket.walletPayee = bucket.payee;
+    bucket.payee = savings.step === 'ready' || savings.step === 'sample' ? savings.address : '';
+    if (!bucket.label) bucket.label = 'Aave savings';
+  } else {
+    bucket.payee = bucket.walletPayee?.trim().toLowerCase() === savings.address?.toLowerCase() ? '' : bucket.walletPayee || '';
+    delete bucket.walletPayee;
+  }
+  bucket.destination = destination;
+  const row = $("#buckets-list").children[index];
+  row.querySelector('.bucket-payee').value = bucket.payee;
+  row.querySelector('.bucket-label').value = bucket.label || '';
+  state.dirty = true;
+  clearRuleError();
+  renderBucketDestinations();
+  updateSummary();
 }
 
 function updateSummary() {
@@ -1557,6 +1657,7 @@ function skipReason(reason) {
 function bucketFromEditor(bucket) {
   const active = Boolean(bucket.active);
   let payee = bucket.payee.trim();
+  if (!payee && bucket.destination === 'aave') throw new Error('Finish Aave setup before saving this destination.');
   if (!active && !payee) payee = ZERO;
   if (!payee) throw new Error("Every active bucket needs a payee.");
   const parsedPayee = getAddress(payee);
@@ -1598,9 +1699,16 @@ async function saveRule(event) {
   clearRuleError();
 
   let buckets;
+  let savingsPayee;
   try {
     if (!state.buckets.length) throw new Error("Add at least one destination.");
     buckets = state.buckets.map(bucketFromEditor);
+    if (buckets.some(bucket => bucket.payee.toLowerCase() === SAMPLE_SAVINGS_DESTINATION)) {
+      throw new Error("Replace the simulated Aave destination with a configured adapter before saving.");
+    }
+    const savingsBuckets = state.buckets.filter(bucket => bucketDestination(bucket) === 'aave');
+    if (savingsBuckets.length > 1) throw new Error("Use one Aave destination per asset.");
+    savingsPayee = savingsBuckets[0]?.payee;
     if (chainId !== 31337 && buckets.some(bucket => bucket.active && SAMPLE_PAYEES.has(bucket.payee.toLowerCase()))) {
       throw new Error("Replace the template’s sample addresses with your own recipients before saving.");
     }
@@ -1616,8 +1724,13 @@ async function saveRule(event) {
   state.busy = true;
   $("#rule-form").inert = true;
   setBusy(button, "Saving…", true);
-  const { signer, split } = state;
+  const { signer, split, account, injected } = state;
   try {
+    if (savingsPayee) {
+      await incomeModules.verifySavingsDestination(savingsPayee);
+      await verifyWalletContext(injected, chainId, account);
+      if (signer !== state.signer) return;
+    }
     const ids = state.buckets.map(b=>/^\d+$/.test(b.id||'') ? BigInt(b.id) : 0n);
     const tx = await split.connect(signer).setBucketsWithIds(deployment.token, buckets, ids);
     clearRuleError();
@@ -2110,6 +2223,11 @@ function wire() {
   });
 
   $("#buckets-list").addEventListener("change", (event) => {
+    const destination = event.target.closest('select[data-destination]');
+    if (destination) {
+      setBucketDestination(Number(destination.dataset.destination), destination.value);
+      return;
+    }
     const input = event.target.closest("input[data-i]");
     if (!input || input.dataset.f !== "active") return;
     const index = Number(input.dataset.i);
@@ -2120,6 +2238,17 @@ function wire() {
   });
 
   $("#buckets-list").addEventListener("click", (event) => {
+    const savings = event.target.closest('[data-savings-action]');
+    if (savings) {
+      if (state.busy) return;
+      switch (savings.dataset.step) {
+        case 'connect': void connect(); break;
+        case 'unavailable': void incomeModules.refresh(); break;
+        case 'create':
+        case 'bind': void incomeModules.setupSavings(savings.dataset.step); break;
+      }
+      return;
+    }
     const up = event.target.closest("[data-up]");
     if (up) {
       const index = Number(up.dataset.up);

@@ -7,7 +7,18 @@ const same = (a, b) => a?.toLowerCase() === b?.toLowerCase();
 const available = address => isAddress(address || '') && !same(address, ZeroAddress);
 const time = value => new Date(Number(value) * 1000).toLocaleString();
 
-export function createIncomeModules({ $, context, stageBucket, toast, setWalletBusy, refreshWorkspace }) {
+export const SAMPLE_SAVINGS_DESTINATION = '0x000000000000000000000000000000000000aa03';
+
+export function savingsSetupState({ aavePool, factory } = {}, savings) {
+  if (!available(aavePool) || !available(factory)) return { step: 'unsupported' };
+  if (!savings) return { step: 'unavailable' };
+  const { aave, pool, registered } = savings;
+  if (!available(aave)) return { step: 'create' };
+  if (!same(pool, aavePool)) return { step: 'unavailable', address: aave };
+  return { step: same(aave, registered) ? 'ready' : 'bind', address: aave };
+}
+
+export function createIncomeModules({ $, context, stageBucket, toast, setWalletBusy, refreshWorkspace, onSavingsChange }) {
   let snapshot;
   let requestId = 0;
   let working = false;
@@ -30,6 +41,7 @@ export function createIncomeModules({ $, context, stageBucket, toast, setWalletB
     set('modules-status', context().demoMode
       ? 'Module controls require a connected wallet and the new contracts.'
       : 'Connect a wallet on the configured network to manage your modules.');
+    onSavingsChange();
   }
 
   async function retrySchedule(ctx) {
@@ -70,23 +82,43 @@ export function createIncomeModules({ $, context, stageBucket, toast, setWalletB
     return { optedIn, ticks, pending, occupied, jobs, closed, historyUnavailable };
   }
 
-  async function readBuckets(ctx) {
+  async function readModuleFactory(ctx, at) {
     const config = ctx.deployment.modules || {};
     if (!available(config.factory)) return null;
     const factory = new Contract(config.factory, FACTORY, ctx.provider);
-    if (!same(await factory.split(), ctx.deployment.split)) throw new Error('Module factory belongs to another split contract.');
-    const [native, aave, cooldown, registered] = await Promise.all([
-      factory.latest(ctx.account, ctx.token, 0), factory.latest(ctx.account, ctx.token, 1),
-      factory.latest(ctx.account, ctx.token, 2), ctx.split.savingsBucket(ctx.account, ctx.token),
+    if (!same(await factory.split(at), ctx.deployment.split)) throw new Error('Module factory belongs to another split contract.');
+    return factory;
+  }
+
+  async function readSavings(ctx, factory, at) {
+    const [latest, registered] = await Promise.all([
+      factory.latest(ctx.account, ctx.token, 1, at), ctx.split.savingsBucket(ctx.account, ctx.token, at),
     ]);
-    const results = { factory, config, native, aave, cooldown, registered };
-    if (available(aave)) {
-      try {
-        const savings = new Contract(aave, AAVE, ctx.provider);
-        const [aToken, pool] = await Promise.all([savings.aToken(), savings.pool()]);
-        results.pool = pool;
-        results.position = await new Contract(aToken, TOKEN, ctx.provider).balanceOf(ctx.account);
-      } catch { /* Existing position may be temporarily unavailable. */ }
+    // An adapter still bound to the waterfall takes priority over a newer factory entry.
+    const aave = available(registered) ? registered : latest;
+    if (!available(aave)) return { aave, registered };
+    try {
+      const savings = new Contract(aave, AAVE, ctx.provider);
+      const [aToken, pool] = await Promise.all([savings.aToken(at), savings.pool(at)]);
+      return { aave, registered, aToken, pool };
+    } catch {
+      return { aave, registered };
+    }
+  }
+
+  async function readBuckets(ctx) {
+    const at = { blockTag: await ctx.provider.send('eth_blockNumber', []) };
+    const factory = await readModuleFactory(ctx, at);
+    if (!factory) return null;
+    const config = ctx.deployment.modules || {};
+    const [native, cooldown, savings] = await Promise.all([
+      factory.latest(ctx.account, ctx.token, 0, at), factory.latest(ctx.account, ctx.token, 2, at),
+      readSavings(ctx, factory, at),
+    ]);
+    const results = { factory, config, native, cooldown, ...savings };
+    if (available(results.aToken)) {
+      try { results.position = await new Contract(results.aToken, TOKEN, ctx.provider).balanceOf(ctx.account, at); }
+      catch { /* An unavailable position cannot authorize a withdrawal. */ }
     }
     if (available(cooldown)) {
       try {
@@ -101,6 +133,28 @@ export function createIncomeModules({ $, context, stageBucket, toast, setWalletB
       } catch { /* Unreadable state cannot authorize a release. */ }
     }
     return results;
+  }
+
+  function savingsDestination() {
+    const ctx = context();
+    if (ctx.demoMode) return { step: 'sample', address: SAMPLE_SAVINGS_DESTINATION };
+    const config = ctx.deployment.modules;
+    if (!available(config?.factory) || !available(config?.aavePool)) return { step: 'unsupported' };
+    if (!ctx.signer) return { step: 'connect' };
+    if (working) return { step: 'working', address: snapshot?.buckets?.aave };
+    if (!snapshot || snapshot.signer !== ctx.signer) return { step: 'checking' };
+    return savingsSetupState(config, snapshot.buckets);
+  }
+
+  async function verifySavingsDestination(address) {
+    const ctx = context();
+    const at = { blockTag: await ctx.provider.send('eth_blockNumber', []) };
+    const factory = await readModuleFactory(ctx, at);
+    const savings = factory && await readSavings(ctx, factory, at);
+    const result = savingsSetupState(ctx.deployment.modules, savings);
+    if (result.step !== 'ready' || !same(result.address, address) || ctx.signer !== context().signer) {
+      throw new Error('Verify the configured Aave adapter and enable automatic supply before saving this destination.');
+    }
   }
 
   function render(ctx) {
@@ -138,18 +192,19 @@ export function createIncomeModules({ $, context, stageBucket, toast, setWalletB
       for (const id of ['native-status', 'aave-status', 'cooldown-status']) set(id, 'Module factory is unavailable.');
       return;
     }
-    const { config, native, aave, cooldown, registered, vault, pool, position } = buckets;
+    const { config, native, aave, cooldown, vault, pool, position } = buckets;
     const wethReady = same(config.wrappedNative || '', ctx.token);
     set('native-status', available(native) ? `Send native ETH to ${native}`
       : wethReady ? 'No ETH receiver yet.' : 'Select a deployment whose waterfall asset is the configured WETH.');
     enabled('native-create', wethReady && !available(native));
     enabled('native-copy', available(native));
-    const registeredAave = available(aave) && same(aave, registered);
+    const aaveStep = savingsSetupState(config, buckets).step;
+    const registeredAave = aaveStep === 'ready';
     set('aave-status', available(aave)
       ? `${aave} · ${registeredAave ? 'Automatic supply enabled' : 'Automatic supply pending'}${position === undefined ? '' : ` · wallet aToken position ${amount(position, ctx)}`}`
       : available(config.aavePool) ? 'No savings bucket yet.' : 'Set the verified Aave V3 pool for this asset in the deployment.');
-    enabled('aave-create', available(config.aavePool) && !available(aave));
-    enabled('aave-register', available(aave) && same(pool, config.aavePool) && !registeredAave);
+    enabled('aave-create', aaveStep === 'create');
+    enabled('aave-register', aaveStep === 'bind');
     enabled('aave-stage', registeredAave);
     enabled('aave-withdraw', available(pool) && same(pool, config.aavePool) && position > 0n);
 
@@ -178,35 +233,67 @@ export function createIncomeModules({ $, context, stageBucket, toast, setWalletB
     };
     set('modules-status', '');
     render(ctx);
+    onSavingsChange();
+  }
+
+  async function verifyWallet(ctx) {
+    if (BigInt(await ctx.provider.send('eth_chainId', [])) !== BigInt(ctx.chainId)
+      || !same((await ctx.provider.send('eth_accounts', []))[0], ctx.account)
+      || ctx.signer !== context().signer) throw new Error('Wallet or network changed. Refresh before continuing.');
+  }
+
+  async function runTransaction(work) {
+    const ctx = context();
+    if (working || ctx.busy || !ctx.signer || snapshot?.signer !== ctx.signer) return;
+    working = true;
+    setWalletBusy(true);
+    render(ctx);
+    onSavingsChange();
+    try {
+      await verifyWallet(ctx);
+      const tx = await work(ctx, snapshot);
+      const receipt = await tx.wait();
+      if (ctx.signer === context().signer) {
+        toast('Module transaction confirmed.', false, tx.hash);
+        await refreshWorkspace({ afterBlock: receipt.blockNumber });
+      }
+    } catch (error) {
+      if (ctx.signer === context().signer) toast(error.shortMessage || error.message, true);
+    } finally {
+      working = false;
+      setWalletBusy(false);
+      await refresh();
+    }
+  }
+
+  function setupSavings(step) {
+    return runTransaction(async ctx => {
+      const at = { blockTag: await ctx.provider.send('eth_blockNumber', []) };
+      const factory = await readModuleFactory(ctx, at);
+      const config = ctx.deployment.modules;
+      const savings = factory && await readSavings(ctx, factory, at);
+      const current = savingsSetupState(config, savings);
+      if (current.step !== step || (step !== 'create' && step !== 'bind')) {
+        throw new Error('The Aave setup changed. Check the current destination before continuing.');
+      }
+      if (step === 'create') {
+        const pool = new Contract(config.aavePool, ['function getReserveAToken(address) view returns (address)'], ctx.provider);
+        const reserve = await pool.getReserveAToken(ctx.token, at);
+        if (!available(reserve) || same(reserve, ctx.token) || await ctx.provider.getCode(reserve, at.blockTag) === '0x') {
+          throw new Error('The configured Aave pool has no supported reserve for this asset.');
+        }
+        await verifyWallet(ctx);
+        return factory.connect(ctx.signer).createAave(ctx.token, config.aavePool);
+      }
+      await verifyWallet(ctx);
+      return ctx.split.connect(ctx.signer).setSavingsBucket(ctx.token, current.address);
+    });
   }
 
   function wire() {
     $('#modules-refresh').addEventListener('click', refresh);
     function transaction(id, work) {
-      $('#' + id).addEventListener('click', async () => {
-        const ctx = context();
-        if (working || ctx.busy || !ctx.signer || snapshot?.signer !== ctx.signer) return;
-        working = true;
-        setWalletBusy(true);
-        render(ctx);
-        try {
-          if (BigInt(await ctx.provider.send('eth_chainId', [])) !== BigInt(ctx.chainId)
-            || !same((await ctx.provider.send('eth_accounts', []))[0], ctx.account)
-            || ctx.signer !== context().signer) throw new Error('Wallet or network changed. Refresh before continuing.');
-          const tx = await work(ctx, snapshot);
-          const receipt = await tx.wait();
-          if (ctx.signer === context().signer) {
-            toast('Module transaction confirmed.', false, tx.hash);
-            await refreshWorkspace({ afterBlock: receipt.blockNumber });
-          }
-        } catch (error) {
-          if (ctx.signer === context().signer) toast(error.shortMessage || error.message, true);
-        } finally {
-          working = false;
-          setWalletBusy(false);
-          await refresh();
-        }
-      });
+      $('#' + id).addEventListener('click', () => void runTransaction(work));
     }
     transaction('retry-toggle', (ctx, s) => ctx.split.connect(ctx.signer).setRetryEnabled(ctx.token, !s.retries.optedIn));
     transaction('retry-process', ctx => ctx.split.connect(ctx.signer).processRetries());
@@ -216,8 +303,8 @@ export function createIncomeModules({ $, context, stageBucket, toast, setWalletB
       return ctx.split.connect(ctx.signer).cancelRetry(BigInt(id));
     });
     transaction('native-create', (ctx, s) => s.buckets.factory.connect(ctx.signer).createNative(ctx.token));
-    transaction('aave-create', (ctx, s) => s.buckets.factory.connect(ctx.signer).createAave(ctx.token, s.buckets.config.aavePool));
-    transaction('aave-register', (ctx, s) => ctx.split.connect(ctx.signer).setSavingsBucket(ctx.token, s.buckets.aave));
+    $('#aave-create').addEventListener('click', () => void setupSavings('create'));
+    $('#aave-register').addEventListener('click', () => void setupSavings('bind'));
     transaction('aave-withdraw', (ctx, s) => {
       const destination = getAddress($('#aave-withdraw-address').value.trim());
       if (!available(destination) || same(destination, ctx.account)) throw new Error('Choose a separate wallet so the withdrawal does not trigger this income rule.');
@@ -242,10 +329,10 @@ export function createIncomeModules({ $, context, stageBucket, toast, setWalletB
       try { await navigator.clipboard.writeText(snapshot.buckets.native); toast('ETH receiving address copied.'); }
       catch { toast('Select and copy the receiving address above.', true); }
     });
-    $('#aave-stage').addEventListener('click', () => stageBucket(snapshot.buckets.aave, 'Aave savings'));
+    $('#aave-stage').addEventListener('click', () => stageBucket(snapshot.buckets.aave, 'Aave savings', 'aave'));
     $('#cooldown-stage').addEventListener('click', () => stageBucket(snapshot.buckets.cooldown, 'Spending cooldown'));
     reset();
   }
 
-  return { wire, refresh, reset };
+  return { wire, refresh, reset, savingsDestination, setupSavings, verifySavingsDestination };
 }

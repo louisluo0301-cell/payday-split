@@ -1,0 +1,55 @@
+.bucket-destination-select {
+  width: 100%;
+  min-width: 0;
+  min-height: 32px;
+  padding: 4px 6px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--white);
+  color: var(--ink-soft);
+  font: 600 12px var(--sans);
+}
+
+.bucket-destination-select:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 1px;
+}
+
+.bucket-amount-field {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.bucket-amount-caption {
+  padding-inline: 2px;
+  color: var(--ink-soft);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.bucket-input:focus-within {
+  border-color: var(--green);
+  box-shadow: 0 0 0 1px var(--green);
+}
+
+.bucket-savings {
+  display: grid;
+  gap: 6px;
+  padding: 4px 0 2px;
+}
+
+.bucket-savings-note {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.bucket-savings-action {
+  max-width: 100%;
+  justify-self: start;
+  white-space: normal;
+  text-align: left;
+}

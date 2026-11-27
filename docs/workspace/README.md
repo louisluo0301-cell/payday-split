@@ -4,6 +4,9 @@
 
 ## 首次使用与付款确认
 
+- 打开 **Quick-start guide**，按顺序选择收款去向、填写金额、运行样例并核对回执。无钱包演示可试用固定金额、收入比例和 Aave 储蓄去向。
+- 要在瀑布中按固定金额储蓄，在相应行选择 **Aave V3 supply**，填写 **Fixed amount**，并把百分比设为零。按行内提示创建适配器、启用供给，再保存分账规则。额度、余额、顺序和限额会影响实付。
+- Aave 的供给利率随市场变化，aToken 进入自己的钱包。演示使用样例，本地 Anvil 使用模拟池。使用支持的公开测试网资产前，核对部署配置中的资金池地址。 [Aave V3 供给说明](https://aave.com/docs/aave-v3/markets/supply)
 - 选择 **Connect wallet** 后，若浏览器同时安装多个钱包，页面会先让你选扩展。确认需要的网络后，才读取该账户的计划。浏览器钱包撤回站点授权时可用 **Update wallet access** 恢复。
 - 如果已有部署，在 **Open testnet workspace** 选择部署 JSON 或粘贴内容。支持 Ethereum Sepolia、Base Sepolia 和 Unichain Sepolia，Reactive 侧为 Lasna。页面用已知的公共 RPC 核对合约代码和绑定，配置保存在当前浏览器标签页。选择 **Use bundled deployment** 可恢复打包配置。
 - 工作台根据当前钱包、已保存的去向、支出授权和自动化检查提示下一步。修改草稿时仍会提示链上沿用已保存的规则。演示模式可直接运行一笔样例，页面会定位到对应的记录。
