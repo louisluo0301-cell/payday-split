@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { selectDeploymentAsset } from '../src/deployment-assets.js';
 import { exportLedger, importRecipients } from '../src/ledger-csv.js';
 import { reconcileRetryEvents } from '../src/retry-evidence.js';
-import { switchWalletChain, verifyWalletContext } from '../src/wallet-context.js';
+import { readWalletIdentity, switchWalletChain, verifyWalletContext } from '../src/wallet-context.js';
 import { localAnvilURL } from '../script/local-rpc.mjs';
 
 const address = id => '0x' + id.toString(16).padStart(40, '0');
@@ -41,6 +41,7 @@ test('wallet chain addition still verifies the network and selected account', as
     }
     throw new Error('Unexpected request');
   } };
+  assert.deepEqual(await readWalletIdentity(wallet, address(1)), { chain: 1n, account: address(1) });
   await assert.rejects(verifyWalletContext(wallet, 31337), /configured network/);
   await switchWalletChain(wallet, 31337, { chainId: '0x7a69' });
   assert.equal(await verifyWalletContext(wallet, 31337), address(1));
@@ -48,6 +49,8 @@ test('wallet chain addition still verifies the network and selected account', as
   await assert.rejects(verifyWalletContext(wallet, 31337, address(1)), /account changed/);
   accounts = [];
   await assert.rejects(verifyWalletContext(wallet, 31337), /active account/);
+  chain = 'invalid';
+  await assert.rejects(readWalletIdentity(wallet), /valid network/);
 });
 
 test('recipient import preserves 18-place amounts and handles commas and quotes', () => {

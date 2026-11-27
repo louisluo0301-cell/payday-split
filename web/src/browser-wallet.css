@@ -1,0 +1,71 @@
+#connect-workspace {
+  min-height: 36px;
+  padding-inline: 12px;
+}
+
+.wallet-chip { justify-self: start; }
+.wallet-chip #wallet-label { min-width: 0; }
+
+.wallet-dialog .import-head p {
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.wallet-dialog .import-actions {
+  flex-wrap: wrap;
+}
+
+.wallet-dialog .btn { min-height: 44px; }
+
+.wallet-empty,
+.wallet-account-details {
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--paper);
+  color: var(--ink-soft);
+}
+
+.wallet-empty {
+  display: grid;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.wallet-empty .btn { justify-self: start; }
+#wallet-detection-status { color: var(--ink); font-weight: 650; }
+
+.wallet-account-details {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+  font-size: 12px;
+}
+
+.wallet-account-details dd {
+  margin: 3px 0 0;
+  color: var(--green-deep);
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+
+.wallet-account-address {
+  grid-column: 1 / -1;
+}
+
+.wallet-account-address dd { font-family: var(--mono); }
+
+.wallet-account-copy {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+@media (max-width: 480px) {
+  .wallet-chip {
+    max-width: 100%;
+    flex-wrap: wrap;
+  }
+}

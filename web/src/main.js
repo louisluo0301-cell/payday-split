@@ -19,7 +19,7 @@ import { groupWaterfallEvents, incomeTransfers, matchedPayout, recoveryQuote } f
 import { createIncomeModules, SAMPLE_SAVINGS_DESTINATION } from "./income-modules.js";
 import { wireCctpCollection } from "./cctp-collection.js";
 import { selectDeploymentAsset } from "./deployment-assets.js";
-import { switchWalletChain, verifyWalletContext } from "./wallet-context.js";
+import { readWalletChainId, readWalletIdentity, switchWalletChain, verifyWalletContext } from "./wallet-context.js";
 import { readIncomeRetries } from "./retry-evidence.js";
 import { exportLedger, importRecipients } from "./ledger-csv.js";
 import { workspaceJourney } from "./workspace-journey.js";
@@ -138,6 +138,7 @@ if (!useLocal && !demoMode && params.get("deployment") === "session") {
 const assetProfile = selectDeploymentAsset(deployment, demoMode ? null : params.get("asset"));
 deployment = assetProfile.deployment;
 const configured = Boolean(deployment.token && deployment.split);
+const readOnlyWallet = demoMode || !configured;
 const chainId = Number(deployment.chainId || 11155111);
 const wrappedAsset = !demoMode && !!deployment.token
   && deployment.token.toLowerCase() === deployment.modules.wrappedNative?.toLowerCase();
@@ -261,6 +262,7 @@ let walletReadId = 0;
 let walletBlockFloor = 0;
 let connectReadId = 0;
 let connecting = false;
+let walletSession = null;
 let lastHealth = null;
 let stopWalletEvents = () => {};
 const browserWallet = createBrowserWallet({ $, browser: window, onChange: renderWorkspace });
@@ -358,6 +360,7 @@ function renderWorkspace() {
   const connected = !!state.signer;
   const next = workspaceJourney({
     demo: state.demoMode, configured, invalidAsset: assetProfile.invalid, hasWallet: browserWallet.hasWallet(),
+    walletLinked: Boolean(walletSession),
     syncStatus: state.syncStatus,
     connected, connecting, savedActive: state.savedActive, dirty: state.dirty, policyDirty,
     modeDirty: state.draftAllocationMode !== state.allocationMode, allowance: state.allowance,
@@ -373,7 +376,10 @@ function renderWorkspace() {
   action.hidden = !next.action || next.action === 'demo';
   action.dataset.action = next.action ?? '';
   setText('workspace-next-action', next.label ?? '');
-  $('#workspace-demo-link').hidden = next.action !== 'demo';
+  const demoLink = $('#workspace-demo-link');
+  demoLink.hidden = state.demoMode || (configured && next.action !== 'demo') || assetProfile.invalid;
+  demoLink.classList.toggle('btn-primary', next.action === 'demo');
+  demoLink.classList.toggle('btn-outline', next.action !== 'demo');
   $('#workspace-stages').hidden = !connected;
   setText('workspace-plan', state.dirty ? 'Unsaved changes' : state.savedActive === null ? 'Checking'
     : state.savedActive ? state.savedActive + ' active · v' + state.ruleVersion : 'No active destinations');
@@ -390,7 +396,8 @@ async function runWorkspaceAction() {
   if (state.busy) { toast('Finish the current wallet action first.'); return; }
   const action = $('#workspace-next-action').dataset.action;
   switch (action) {
-    case 'connect': await connect(); break;
+    case 'connect': await connect($('#workspace-next-action')); break;
+    case 'deployment': $('#open-deployment').click(); break;
     case 'refresh': await refreshAll(); break;
     case 'plan': jumpTo('#waterfall-title'); break;
     case 'asset': jumpTo('#asset-select'); break;
@@ -566,20 +573,54 @@ const CHAIN_PARAMS = {
   },
 };
 
+function renderWalletControls() {
+  const account = walletSession?.account;
+  const top = $('#connect-top');
+  top.setAttribute('aria-label', account ? 'Manage connected wallet' : 'Connect wallet');
+  top.setAttribute('aria-busy', String(connecting));
+  setText('connect-top', account ? short(account) : connecting ? 'Connecting…' : 'Connect wallet');
+  setText('wallet-label', account ? short(account) : state.demoMode ? 'Demo mode' : 'Not connected');
+  setText('wallet-provider-label', walletSession?.providerLabel || '');
+  $('#wallet-chip').classList.toggle('connected', Boolean(account));
+  $('#wallet-provider-label').hidden = !account;
+  $('#connect-workspace').hidden = Boolean(account);
+  $('#disconnect').hidden = !account;
+}
+
+function connectedNetwork(chain) {
+  return chain === 1n ? 'Ethereum Mainnet' : CHAIN_PARAMS[chain]?.chainName || 'Chain ' + chain;
+}
+
+function openWalletSession(injected, account, chain) {
+  walletSession = { injected, account, chain, providerLabel: browserWallet.label(injected) };
+  stopWalletEvents = attachWalletEvents(injected);
+  $('#wallet-reauthorize').hidden = true;
+  renderWalletControls();
+}
+
 function attachWalletEvents(injected) {
   const changed = message => {
-    if (state.injected !== injected) return;
+    if (walletSession?.injected !== injected) return;
     disconnect();
     toast(message);
   };
   const handlers = {
     accountsChanged: accounts => {
-      if (accounts?.[0]?.toLowerCase() !== state.account?.toLowerCase()) {
-        changed("The wallet account changed. Connect again to open its plan.");
+      if (typeof accounts?.[0] !== 'string' || accounts[0].toLowerCase() !== walletSession?.account.toLowerCase()) {
+        changed("The wallet account changed. Connect again to continue.");
       }
     },
-    chainChanged: chain => {
-      if (Number(chain) !== chainId) changed("The wallet network changed. Reconnect to return to this plan.");
+    chainChanged: value => {
+      if (walletSession?.injected !== injected) return;
+      try {
+        const chain = readWalletChainId(value);
+        if (!readOnlyWallet && chain !== BigInt(chainId)) {
+          changed("The wallet network changed. Reconnect to return to this plan.");
+        } else if (walletSession.chain !== chain) {
+          walletSession.chain = chain;
+          browserWallet.closeAccount();
+        }
+      } catch { changed("The wallet reported an invalid network. Reconnect to continue."); }
     },
     disconnect: () => changed("The wallet lost its connection. Reconnect to continue."),
   };
@@ -592,29 +633,34 @@ function attachWalletEvents(injected) {
   };
 }
 
-async function connect() {
-  if (state.demoMode) {
-    document.querySelector("#dashboard")?.scrollIntoView({ block: "start" });
-    return;
-  }
-  if (!configured) {
-    if (assetProfile.invalid) jumpTo("#asset-select");
-    else location.assign($("#workspace-demo-link").href);
+async function connect(trigger = document.activeElement) {
+  if (walletSession) {
+    const { account, chain, providerLabel } = walletSession;
+    browserWallet.openAccount({ trigger, account, network: connectedNetwork(chain), providerLabel, readOnly: readOnlyWallet });
     return;
   }
   if (connecting || state.busy) return;
-  if (state.account) { $("#dashboard").scrollIntoView({ block: "start" }); return; }
 
   const request = ++connectReadId;
   connecting = true;
+  renderWalletControls();
   renderWorkspace();
-  setText("connect-top", "Connecting…");
   let provider;
   try {
-    const injected = await browserWallet.choose();
+    const injected = await browserWallet.choose({
+      explicit: true, trigger, network: networkName(), readOnly: readOnlyWallet,
+    });
     if (!injected || request !== connectReadId) return;
     const accounts = await injected.request({ method: "eth_requestAccounts" });
-    if (!accounts?.[0]) throw new Error("Select an account in your wallet to continue.");
+    if (request !== connectReadId) return;
+    if (!Array.isArray(accounts) || !accounts[0]) throw new Error("Select an account in your wallet to continue.");
+    if (readOnlyWallet) {
+      const { account, chain } = await readWalletIdentity(injected, accounts[0]);
+      if (request !== connectReadId) return;
+      openWalletSession(injected, account, chain);
+      toast("Wallet connected for address viewing.");
+      return;
+    }
     await switchWalletChain(injected, chainId, CHAIN_PARAMS[chainId]);
     const account = await verifyWalletContext(injected, chainId, accounts[0]);
     provider = new BrowserProvider(injected, chainId);
@@ -640,39 +686,48 @@ async function connect() {
       $("#sample-error").hidden = true;
     }
     Object.assign(state, { provider, signer, account, token, split, symbol, injected, decimals: Number(decimals), labels: loadLabels(account) });
-    stopWalletEvents = attachWalletEvents(injected);
-
-    $("#wallet-chip").classList.add("connected");
-    setText("wallet-label", short(account));
-    setText("wallet-provider-label", browserWallet.label(injected));
-    $("#wallet-provider-label").hidden = false;
-    $("#wallet-reauthorize").hidden = true;
-    $("#disconnect").hidden = false;
-    setText("connect-top", short(account));
+    openWalletSession(injected, account, BigInt(chainId));
 
     await refreshAll();
     if (request === connectReadId) incomeModules.refresh();
   } catch (err) {
-    if (request === connectReadId) toast(humanError(err), true);
+    if (request === connectReadId) {
+      const code = Number(err?.data?.originalError?.code ?? err?.code);
+      const message = code === 4001 || err?.code === 'ACTION_REJECTED'
+        ? 'Wallet connection or network switch declined. You can try again.'
+        : code === -32002 ? 'Open your wallet to respond to the pending connection request.'
+          : humanError(err);
+      toast(message, true);
+    }
   } finally {
     if (provider && provider !== state.provider) provider.destroy();
     if (request === connectReadId) {
       connecting = false;
+      if (!walletSession) browserWallet.clearSelection();
+      renderWalletControls();
       renderWorkspace();
-      if (!state.account) setText("connect-top", "Connect wallet");
     }
   }
 }
 
 function disconnect() {
   ++connectReadId;
+  connecting = false;
+  stopWalletEvents();
+  stopWalletEvents = () => {};
+  walletSession = null;
+  browserWallet.closeAccount();
+  browserWallet.clearSelection();
+  $('#wallet-reauthorize').hidden = true;
+  renderWalletControls();
+  if (!state.signer) {
+    renderWorkspace();
+    return;
+  }
   ++healthReadId;
   ++activityReadId;
   ++walletReadId;
   walletBlockFloor = 0;
-  connecting = false;
-  stopWalletEvents();
-  stopWalletEvents = () => {};
   lastHealth = null;
   healthPanel.reset();
   incomeTrace.reset();
@@ -714,12 +769,6 @@ function disconnect() {
   $("#policy-paused").checked = false;
   setText("policy-status", "Connect to read onchain controls.");
 
-  $("#wallet-chip").classList.remove("connected");
-  setText("wallet-label", "Not connected");
-  $("#wallet-provider-label").hidden = true;
-  $("#wallet-reauthorize").hidden = true;
-  setText("connect-top", "Connect wallet");
-  $("#disconnect").hidden = true;
   renderDisconnected();
   loadReactiveStatus();
   previousProvider?.destroy();
@@ -2268,9 +2317,37 @@ function wire() {
       toast(error.code === -32601 ? "This wallet manages access in the extension. Review the site permissions there, then reconnect." : humanError(error), true);
     } finally { state.busy = false; }
   });
-  $("#connect-top").addEventListener("click", connect);
-  $("#connect-hero").addEventListener("click", connect);
-  $("#disconnect").addEventListener("click", disconnect);
+  for (const selector of ['#connect-top', '#connect-workspace']) {
+    $(selector).addEventListener('click', event => void connect(event.currentTarget));
+  }
+  $('#connect-hero').addEventListener('click', event => {
+    if (state.demoMode) jumpTo('#dashboard');
+    else if (assetProfile.invalid) jumpTo('#asset-select');
+    else if (!configured) location.assign($('#workspace-demo-link').href);
+    else void connect(event.currentTarget);
+  });
+  for (const selector of ['#disconnect', '#wallet-account-disconnect']) {
+    $(selector).addEventListener('click', () => {
+      if (state.busy) {
+        if ($('#wallet-account-dialog').open) setText('wallet-account-status', 'Finish the active wallet action before disconnecting.');
+        else toast('Finish the active wallet action before disconnecting.');
+        return;
+      }
+      disconnect();
+      if (selector === '#disconnect') $('#connect-workspace').focus({ preventScroll: true });
+      toast('Wallet disconnected from this workspace.');
+    });
+  }
+  $('#wallet-copy-address').addEventListener('click', async () => {
+    const session = walletSession;
+    if (!session) return;
+    try {
+      await navigator.clipboard.writeText(session.account);
+      if (walletSession === session) setText('wallet-account-status', 'Address copied.');
+    } catch {
+      if (walletSession === session) setText('wallet-account-status', 'Select the address above to copy it manually.');
+    }
+  });
   $("#rule-form").addEventListener("submit", saveRule);
   $("#approve-btn").addEventListener("click", approve);
   $("#faucet-btn").addEventListener("click", claim);
@@ -2430,7 +2507,7 @@ function wire() {
     document.querySelector(".site-header").classList.toggle("scrolled", window.scrollY > 8);
   });
 
-  if (!state.demoMode) browserWallet.discover();
+  browserWallet.discover();
 
   setInterval(() => {
     if (state.account && state.demoToken) { renderFaucet(); renderWorkspace(); }
@@ -2475,6 +2552,7 @@ function hasWorkspaceDraft() {
 function boot() {
   wire();
   wireAssetPicker();
+  renderWalletControls();
   $("#approval-amount").value = defaultSample;
 
   setText(
@@ -2502,7 +2580,6 @@ function boot() {
   }
 
   if (!configured && !assetProfile.invalid) {
-    setText('connect-top', 'Open demo');
     setText('connect-hero', 'Try interactive demo');
     setText('network-label', 'Demo available · testnet setup optional');
     $('#hero-demo').href = '#proof';
@@ -2522,10 +2599,6 @@ function boot() {
     $('#hero-demo').href = '#proof';
     setText('hero-demo', 'View testnet proof');
     setText("network-label", "Simulation · no wallet required");
-    setText("wallet-label", "Demo mode");
-    $("#wallet-chip").classList.add("connected");
-    $("#workspace-link").hidden = true;
-    setText("connect-top", "Workspace");
     setText("connect-hero", "Open sample workspace");
 
     updateModeUI();

@@ -1,17 +1,19 @@
 const spendingAlerts = new Set(['plan-paused', 'expired', 'daily-limit']);
 
-export function workspaceJourney({ demo, configured, invalidAsset, hasWallet, connected, connecting,
+export function workspaceJourney({ demo, configured, invalidAsset, hasWallet, connected, connecting, walletLinked,
   savedActive, dirty, policyDirty, modeDirty, allowance, report, symbol, network, nativeReceiver, demoToken, faucetReady, syncStatus }) {
-  const scope = demo ? 'Interactive demo' : network + ' · ' + symbol;
+  const scope = demo ? 'Interactive demo' : configured ? network + ' · ' + symbol : 'Workspace setup';
   const next = (tone, title, note, action, label) => ({ scope, tone, title, note, action, label });
   if (demo) return next('demo', 'Try a sample income',
     'Edit the destinations or amount, then see what would be paid and what stays in your wallet.', 'sample', 'Run sample income');
   if (invalidAsset) return next('warning', 'Choose a supported asset',
     'Use the asset selector to open a plan on this network.', 'asset', 'Choose asset');
-  if (!configured) return next('demo', 'Explore with a sample plan',
-    'Wallet setup opens when a testnet deployment is configured. You can try the full workflow with sample funds today.', 'demo', 'Open interactive demo');
   if (!connected && connecting) return next('neutral', 'Waiting for your wallet',
-    'Confirm the account and network in your wallet.');
+    configured ? 'Confirm the account and network in your wallet.' : 'Confirm the account in your wallet.');
+  if (!configured && walletLinked) return next('neutral', 'Open a testnet workspace',
+    'Your wallet address is connected. Open a verified deployment to save a plan and test payments.', 'deployment', 'Open testnet workspace');
+  if (!configured) return next('neutral', 'Connect your wallet or try the demo',
+    'You can view your wallet address now. Payments require a verified testnet workspace.', 'connect', 'Connect wallet');
   if (!connected && !hasWallet) return next('demo', 'Try it without a wallet',
     'Use the demo now, or reopen this page in a browser with an Ethereum wallet to use this testnet.', 'demo', 'Open interactive demo');
   if (!connected) return next('neutral', 'Connect to see your plan',

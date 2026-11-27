@@ -11,8 +11,9 @@ const checked = { complete: true, status: 'ready', alerts: [] };
 const next = changes => workspaceJourney({ ...live, ...changes });
 
 test('the workspace directs users through wallet, destinations and allowance before receiving', () => {
-  assert.equal(next({ configured: false, connected: false }).action, 'demo');
-  assert.equal(next({ demo: true, configured: false }).action, 'sample');
+  assert.equal(next({ configured: false, connected: false }).action, 'connect');
+  assert.equal(next({ configured: false, connected: false, walletLinked: true }).action, 'deployment');
+  assert.equal(next({ demo: true, configured: false, walletLinked: true }).action, 'sample');
   assert.equal(next({ invalidAsset: true, configured: false }).action, 'asset');
   assert.equal(next({ connected: false }).action, 'connect');
   assert.equal(next({ savedActive: 0, allowance: 0n }).action, 'plan');

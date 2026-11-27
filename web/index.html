@@ -26,6 +26,7 @@
     <link rel="stylesheet" href="/src/showcase-effects.css" />
     <link rel="stylesheet" href="/src/walkthrough.css" />
     <link rel="stylesheet" href="/src/action-review.css" />
+    <link rel="stylesheet" href="/src/browser-wallet.css" />
   </head>
   <body>
     <div class="grain" aria-hidden="true"></div>
@@ -40,7 +41,7 @@
         <a href="#dashboard" id="workspace-link">Workspace</a>
         <a href="#proof">Testnet proof</a>
         <a href="#how">How it works</a>
-        <button class="btn btn-small btn-ink" id="connect-top" type="button">Connect wallet</button>
+        <button class="btn btn-small btn-ink" id="connect-top" type="button" aria-haspopup="dialog">Connect wallet</button>
       </nav>
     </header>
 
@@ -55,7 +56,7 @@
             by your rules and leaves the remainder in your wallet.
           </p>
           <div class="hero-actions">
-            <button class="btn btn-primary" id="connect-hero" type="button">Connect wallet</button>
+            <button class="btn btn-primary" id="connect-hero" type="button" aria-haspopup="dialog">Connect wallet</button>
             <a class="btn btn-outline" href="?demo=1#dashboard" id="hero-demo">Try without a wallet</a>
           </div>
           <div class="trust-row">
@@ -152,9 +153,10 @@
             <h2 id="dashboard-title">Income workspace</h2>
           </div>
           <div class="wallet-chip" id="wallet-chip">
-            <span class="wallet-dot"></span>
+            <span class="wallet-dot" aria-hidden="true"></span>
             <span id="wallet-label">Not connected</span>
             <span id="wallet-provider-label" hidden></span>
+            <button id="connect-workspace" class="btn btn-small btn-outline" type="button" aria-haspopup="dialog">Connect wallet</button>
             <button id="wallet-reauthorize" class="link-btn" type="button" hidden>Update wallet access</button>
             <button id="disconnect" type="button" class="link-btn" hidden>Disconnect</button>
           </div>
@@ -708,14 +710,44 @@
       </div>
     </dialog>
 
-    <dialog id="wallet-dialog" class="import-dialog" aria-labelledby="wallet-dialog-title">
+    <dialog id="wallet-dialog" class="import-dialog manual-dialog wallet-dialog" aria-labelledby="wallet-dialog-title" aria-describedby="wallet-dialog-description">
       <div class="import-form">
         <header class="import-head">
-          <h3 id="wallet-dialog-title">Choose a browser wallet</h3>
-          <p>Select the extension you want to use for this workspace.</p>
+          <h3 id="wallet-dialog-title" tabindex="-1">Connect wallet</h3>
+          <p id="wallet-dialog-description">Choose an Ethereum wallet installed in this browser.</p>
         </header>
         <div id="wallet-options" class="wallet-options"></div>
-        <div class="import-actions"><button class="btn btn-small btn-ghost" id="wallet-cancel" type="button">Close</button></div>
+        <div class="wallet-empty" id="wallet-empty" hidden>
+          <p id="wallet-detection-status" role="status"></p>
+          <p>Open this page where your Ethereum wallet is installed, then check again.</p>
+          <button class="btn btn-small btn-outline" id="wallet-check-again" type="button">Check again</button>
+        </div>
+        <div class="import-actions">
+          <a class="btn btn-small btn-outline" id="wallet-open-demo" href="?demo=1#dashboard" hidden>Use the demo</a>
+          <button class="btn btn-small btn-ghost" id="wallet-cancel" type="button">Close</button>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="wallet-account-dialog" class="import-dialog manual-dialog wallet-dialog" aria-labelledby="wallet-account-title" aria-describedby="wallet-account-description">
+      <div class="import-form">
+        <header class="import-head">
+          <h3 id="wallet-account-title" tabindex="-1">Connected wallet</h3>
+          <p id="wallet-account-description"></p>
+        </header>
+        <dl class="wallet-account-details">
+          <div><dt>Wallet</dt><dd id="wallet-account-provider"></dd></div>
+          <div><dt>Network</dt><dd id="wallet-account-network"></dd></div>
+          <div class="wallet-account-address"><dt>Address</dt><dd id="wallet-account-address"></dd></div>
+        </dl>
+        <div class="wallet-account-copy">
+          <button class="btn btn-small btn-outline" id="wallet-copy-address" type="button">Copy address</button>
+          <p id="wallet-account-status" class="fineprint" role="status"></p>
+        </div>
+        <div class="import-actions">
+          <button class="btn btn-small btn-ghost" id="wallet-account-close" type="button">Close</button>
+          <button class="btn btn-small btn-outline" id="wallet-account-disconnect" type="button">Disconnect</button>
+        </div>
       </div>
     </dialog>
 
