@@ -18,7 +18,7 @@ export function savingsSetupState({ aavePool, factory } = {}, savings) {
   return { step: same(aave, registered) ? 'ready' : 'bind', address: aave };
 }
 
-export function createIncomeModules({ $, context, stageBucket, toast, setWalletBusy, refreshWorkspace, onSavingsChange }) {
+export function createIncomeModules({ $, context, stageBucket, toast, setWalletBusy, refreshWorkspace, onSavingsChange, reviewSavingsSetup }) {
   let snapshot;
   let requestId = 0;
   let working = false;
@@ -266,14 +266,20 @@ export function createIncomeModules({ $, context, stageBucket, toast, setWalletB
     }
   }
 
-  function setupSavings(step) {
-    return runTransaction(async ctx => {
+  async function setupSavings(step, trigger) {
+    const { signer, busy } = context();
+    const destination = savingsDestination();
+    if (busy || !signer || destination.step !== step || !['create', 'bind'].includes(step)) return;
+    const confirmed = await reviewSavingsSetup({ trigger, step, adapter: destination.address });
+    if (!confirmed || signer !== context().signer) return;
+
+    await runTransaction(async ctx => {
       const at = { blockTag: await ctx.provider.send('eth_blockNumber', []) };
       const factory = await readModuleFactory(ctx, at);
       const config = ctx.deployment.modules;
       const savings = factory && await readSavings(ctx, factory, at);
       const current = savingsSetupState(config, savings);
-      if (current.step !== step || (step !== 'create' && step !== 'bind')) {
+      if (current.step !== step || !same(current.address, destination.address)) {
         throw new Error('The Aave setup changed. Check the current destination before continuing.');
       }
       if (step === 'create') {
@@ -303,8 +309,8 @@ export function createIncomeModules({ $, context, stageBucket, toast, setWalletB
       return ctx.split.connect(ctx.signer).cancelRetry(BigInt(id));
     });
     transaction('native-create', (ctx, s) => s.buckets.factory.connect(ctx.signer).createNative(ctx.token));
-    $('#aave-create').addEventListener('click', () => void setupSavings('create'));
-    $('#aave-register').addEventListener('click', () => void setupSavings('bind'));
+    $('#aave-create').addEventListener('click', event => void setupSavings('create', event.currentTarget));
+    $('#aave-register').addEventListener('click', event => void setupSavings('bind', event.currentTarget));
     transaction('aave-withdraw', (ctx, s) => {
       const destination = getAddress($('#aave-withdraw-address').value.trim());
       if (!available(destination) || same(destination, ctx.account)) throw new Error('Choose a separate wallet so the withdrawal does not trigger this income rule.');

@@ -1,0 +1,90 @@
+.walkthrough-dialog {
+  width: min(94vw, 600px);
+  max-height: 90vh;
+  max-height: 90dvh;
+  overflow: auto;
+}
+
+body:has(.walkthrough-dialog[open]) { overflow: hidden; }
+
+#open-walkthrough { margin-top: 14px; }
+
+.walkthrough-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.walkthrough-header h2 {
+  margin: 0;
+  color: var(--green-deep);
+  font: 500 clamp(23px, 4vw, 32px)/1.2 var(--display);
+}
+
+.walkthrough-panel {
+  display: grid;
+  gap: 12px;
+  font-size: 14px;
+  color: var(--ink-soft);
+}
+
+.walkthrough-panel p,
+.walkthrough-panel h3 {
+  margin: 0;
+}
+
+.walkthrough-panel h3 { color: var(--green-deep); font-size: 17px; }
+
+.walkthrough-choices {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.walkthrough-choices button {
+  display: grid;
+  align-content: start;
+  gap: 5px;
+  min-width: 0;
+  min-height: 96px;
+  padding: 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 14px;
+  background: var(--paper);
+  color: var(--ink-soft);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+
+.walkthrough-choices button:hover { border-color: var(--green); background: var(--green-soft); }
+.walkthrough-choices strong, .walkthrough-steps strong { color: var(--green-deep); }
+
+.walkthrough-steps {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding-left: 22px;
+}
+
+.walkthrough-steps li { padding-left: 3px; }
+.walkthrough-steps p { margin-top: 3px; }
+.walkthrough-steps .link-btn { min-height: 32px; }
+
+.walkthrough-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+#workspace-next-title, #buckets-list [data-destination] { scroll-margin-top: 105px; }
+
+@media (max-width: 480px) {
+  .walkthrough-dialog .import-form { padding: 16px; }
+  .walkthrough-choices { grid-template-columns: minmax(0, 1fr); }
+  .walkthrough-choices button { min-height: auto; }
+  .walkthrough-actions .btn { white-space: normal; text-align: center; }
+}

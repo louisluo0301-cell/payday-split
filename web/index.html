@@ -24,6 +24,8 @@
     <link rel="stylesheet" href="/src/style.css" />
     <link rel="stylesheet" href="/src/bucket-destinations.css" />
     <link rel="stylesheet" href="/src/showcase-effects.css" />
+    <link rel="stylesheet" href="/src/walkthrough.css" />
+    <link rel="stylesheet" href="/src/action-review.css" />
   </head>
   <body>
     <div class="grain" aria-hidden="true"></div>
@@ -58,7 +60,7 @@
           </div>
           <div class="trust-row">
             <span id="network-label">Sepolia testnet</span>
-            <a class="guide-launch" href="#quick-start" data-magnetic><span data-magnetic-content>Quick-start guide ↗</span></a>
+            <a class="guide-launch" href="#quick-start" data-open-walkthrough data-magnetic><span data-magnetic-content>Quick-start guide</span></a>
           </div>
         </div>
 
@@ -177,7 +179,7 @@
           <div class="workspace-next-head">
             <div class="workspace-next-copy" role="status" aria-atomic="true">
               <p id="workspace-scope" class="workspace-scope">PaydaySplit</p>
-              <h3 id="workspace-next-title">Set up income routing</h3>
+              <h3 id="workspace-next-title" tabindex="-1">Set up income routing</h3>
               <p id="workspace-next-note"></p>
             </div>
             <a id="workspace-demo-link" href="?demo=1#dashboard" class="btn btn-primary" hidden>Open interactive demo</a>
@@ -219,6 +221,7 @@
               <a href="#open-deployment">Find testnet setup ↗</a>
             </li>
           </ol>
+          <button id="open-walkthrough" class="btn btn-small btn-outline" type="button" data-open-walkthrough hidden>Open guided setup</button>
         </details>
 
         <div class="grid">
@@ -642,6 +645,68 @@
         <span>Testnet only · Not financial advice</span>
       </div>
     </footer>
+
+    <dialog id="walkthrough-dialog" class="import-dialog walkthrough-dialog" aria-labelledby="walkthrough-title">
+      <div class="import-form">
+        <header class="import-head walkthrough-header">
+          <h2 id="walkthrough-title" tabindex="-1">Get started with PaydaySplit</h2>
+          <form method="dialog"><button class="btn btn-small btn-ghost" type="submit">Close</button></form>
+        </header>
+
+        <div class="walkthrough-panel" data-walkthrough-panel="start">
+          <p>Choose how you want to begin.</p>
+          <div class="walkthrough-choices">
+            <button type="button" data-walkthrough-view="demo">
+              <strong>Try a sample income</strong>
+              <span>Set destinations and see how a sample payment splits. No wallet needed.</span>
+            </button>
+            <button type="button" data-walkthrough-view="testnet">
+              <strong>Set up a testnet plan</strong>
+              <span>Use a test wallet to save a plan and verify automatic routing.</span>
+            </button>
+          </div>
+        </div>
+
+        <section class="walkthrough-panel" data-walkthrough-panel="demo" aria-labelledby="walkthrough-demo-title" hidden>
+          <h3 id="walkthrough-demo-title" tabindex="-1">Try a sample income</h3>
+          <ol class="walkthrough-steps">
+            <li>
+              <strong>Choose a destination</strong>
+              <p>Send to a wallet or choose simulated Aave V3 supply.</p>
+              <button class="link-btn" type="button" data-walkthrough-action="destinations" data-walkthrough-demo hidden>Edit destinations</button>
+            </li>
+            <li>
+              <strong>Set an amount</strong>
+              <p>For a fixed allocation, enter an amount and keep the percentage at zero. Set the sample income to preview the split.</p>
+              <button class="link-btn" type="button" data-walkthrough-action="preview" data-walkthrough-demo hidden>Edit preview amount</button>
+            </li>
+            <li>
+              <strong>Check the result</strong>
+              <p>Run a sample to see the amount sent to each destination and what stays in the wallet.</p>
+            </li>
+          </ol>
+          <div class="walkthrough-actions">
+            <button class="btn btn-small btn-ghost" type="button" data-walkthrough-view="start">Back</button>
+            <button class="btn btn-small btn-primary" type="button" data-walkthrough-action="sample" data-walkthrough-demo hidden>Run sample income</button>
+            <a class="btn btn-small btn-primary" href="?demo=1#quick-start" target="_blank" rel="noopener" data-walkthrough-external>Open demo in a new tab</a>
+          </div>
+        </section>
+
+        <section class="walkthrough-panel" data-walkthrough-panel="testnet" aria-labelledby="walkthrough-testnet-title" hidden>
+          <h3 id="walkthrough-testnet-title" tabindex="-1">Set up a testnet plan</h3>
+          <ol class="walkthrough-steps">
+            <li><strong>Open a verified testnet workspace</strong><p>Use a configured deployment and connect the wallet that will receive test income.</p></li>
+            <li><strong>Save your destinations</strong><p>Review the split and approve a spending limit for the saved plan.</p></li>
+            <li><strong>Verify automation</strong><p>Check automation health before claiming or sending a test payment. Follow the payout in Income trace.</p></li>
+          </ol>
+          <div class="walkthrough-actions">
+            <button class="btn btn-small btn-ghost" type="button" data-walkthrough-view="start">Back</button>
+            <button class="btn btn-small btn-outline" type="button" data-walkthrough-action="deployment">Open deployment settings</button>
+            <button class="btn btn-small btn-primary" type="button" data-walkthrough-action="next" data-walkthrough-testnet>Go to workspace setup</button>
+          </div>
+        </section>
+      </div>
+    </dialog>
 
     <dialog id="wallet-dialog" class="import-dialog" aria-labelledby="wallet-dialog-title">
       <div class="import-form">

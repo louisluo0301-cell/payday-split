@@ -16,6 +16,13 @@ test('demo dashboard boots, saves controls, respects pause and manages allowance
   try {
     await import('../src/main.js');
     const $ = s => window.document.querySelector(s);
+    async function finishReview(action) {
+      const dialog = $('#action-review');
+      assert.equal(dialog.open, true);
+      const closed = new Promise(resolve => dialog.addEventListener('close', resolve, { once: true }));
+      $(action).click();
+      await closed;
+    }
     assert.match($('#network-label').textContent,/Simulation/);
     assert.equal($('#hero-demo').hash, '#proof');
     assert.equal($('#workspace-next-action').dataset.action, 'sample');
@@ -83,12 +90,20 @@ test('demo dashboard boots, saves controls, respects pause and manages allowance
     assert.match($('.activity-group').textContent,/600\.00retained/);
     $('#approval-amount').value = '123.45';
     $('#approve-btn').click();
+    assert.match($('#action-review-facts').textContent, /123\.45 dUSDC/);
+    assert.match($('#allowance-pill').textContent, /Unlimited/);
+    await finishReview('#action-review-confirm');
     assert.match($('#allowance-pill').textContent,/123.45/);
     $('#revoke-allowance').click();
+    await finishReview('#action-review-cancel');
+    assert.match($('#allowance-pill').textContent,/123.45/);
+    $('#revoke-allowance').click();
+    await finishReview('#action-review-confirm');
     assert.match($('#allowance-pill').textContent,/Allowance —/);
     assert.match($('#health-items').textContent,/Sample allowance is zero/);
     // Targets count payouts from activation, then prevent repeated bill payments.
     $('#approval-amount').value='10000'; $('#approve-btn').click();
+    await finishReview('#action-review-confirm');
     $('#policy-maxPerRun').value='0'; $('#save-policy').click();
     $('[data-goal="0"]').value='350'; $('[data-save-goal="0"]').click();
     await Promise.resolve();
@@ -116,6 +131,8 @@ test('demo dashboard boots, saves controls, respects pause and manages allowance
     assert.match($('.activity-group').textContent,/\+75\.00/);
     // New templates, pro-rata budgets, stable UI identities and automatic weekly rollover.
     $('[data-preset="balanced"]').click();
+    assert.equal($('#buckets-list').children.length, 1);
+    await finishReview('#action-review-confirm');
     $('#policy-maxPerRun').value='600'; $('#save-policy').click();
     $('#save-allocation').click(); await Promise.resolve();
     $('#faucet-btn').click();

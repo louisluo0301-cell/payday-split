@@ -1,5 +1,6 @@
 import { startHeroParticles } from './hero-particles.js';
 import { wireShowcaseEffects } from './showcase-effects.js';
+import { wireWalkthrough } from './walkthrough.js';
 
 const hero = document.querySelector('.hero');
 const canvas = document.querySelector('#hero-particles');
@@ -18,11 +19,12 @@ if (guide) {
     link.addEventListener('click', () => { guide.open = true; });
   });
   const demoLink = guide.querySelector('[data-guide-demo]');
-  if (demoLink && new URLSearchParams(location.search).get('demo') === '1') {
+  if (demoLink && new URLSearchParams(location.search).has('demo')) {
     demoLink.href = '#workspace-next-action';
     demoLink.removeAttribute('target');
     demoLink.textContent = 'Find Run sample income ↗';
   }
+  wireWalkthrough();
 }
 
 if (window.IntersectionObserver) {

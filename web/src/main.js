@@ -28,6 +28,7 @@ import { createBrowserWallet } from "./browser-wallet.js";
 import { DEPLOYMENT_SESSION, parseTestnetDeployment, wireTestnetDeployment } from "./browser-deployment.js";
 import { readFaucet, readWalletSnapshot } from "./wallet-snapshot.js";
 import { updateWalletAllowance } from "./wallet-allowance.js";
+import { createActionReview } from "./action-review.js";
 
 let demoPolicy = {};
 let demoSpent = 0n;
@@ -252,6 +253,7 @@ const incomeModules = createIncomeModules({
   refreshWorkspace: refreshAll,
   stageBucket: stageModuleBucket,
   onSavingsChange: renderBucketDestinations,
+  reviewSavingsSetup,
 });
 let healthReadId = 0;
 let activityReadId = 0;
@@ -262,6 +264,7 @@ let connecting = false;
 let lastHealth = null;
 let stopWalletEvents = () => {};
 const browserWallet = createBrowserWallet({ $, browser: window, onChange: renderWorkspace });
+const actionReview = createActionReview();
 const manualPayment = createManualPayment({
   $, context: () => ({ ...incomeTraceContext(), network: networkName() }),
   readQuote: readManualQuote, pay: submitManualPayment, labelFor, errorMessage: humanError,
@@ -674,6 +677,7 @@ function disconnect() {
   healthPanel.reset();
   incomeTrace.reset();
   manualPayment.close();
+  actionReview.cancel();
   incomeModules.reset();
   planner.clear();
   policyDirty = false;
@@ -1688,6 +1692,81 @@ function readBucketAmounts(bucket) {
   return { fixedAmount, bps: Number(rate) };
 }
 
+function reviewFacts() {
+  return [
+    ['Asset', state.symbol],
+    ['Workspace', state.demoMode ? 'Local simulation' : networkName()],
+    ...(!state.demoMode && state.account ? [['Wallet', state.account]] : []),
+  ];
+}
+
+function reviewWalletIsCurrent(signer) {
+  if (!state.busy && signer === state.signer) return true;
+  toast('The workspace changed. Review your selection again.', true);
+  return false;
+}
+
+function reviewSavingsSetup({ trigger, step, adapter }) {
+  const creating = step === 'create';
+  return actionReview.open({
+    trigger,
+    title: creating ? 'Create an Aave adapter?' : 'Enable Aave supply?',
+    description: creating
+      ? 'This creates the adapter for your wallet and asset. You can enable it in the next step.'
+      : 'This links the verified adapter to your waterfall. Save the destination and its amount after enabling it.',
+    facts: [
+      ...reviewFacts(),
+      [useLocal ? 'Mock pool' : 'Aave V3 pool', deployment.modules.aavePool],
+      ...(!creating ? [['Adapter', adapter]] : []),
+    ],
+    note: useLocal ? 'This workspace uses a mock reserve for local testing.'
+      : 'When income is routed to this destination, your wallet receives aTokens. The supply rate varies.',
+    confirm: 'Continue to wallet',
+  });
+}
+
+async function reviewTemplate(trigger, preset) {
+  const { signer, dirty, buckets, symbol } = state;
+  const proRata = preset === 'balanced' || preset === 'emergency';
+  const draft = JSON.stringify(buckets);
+  const confirmed = await actionReview.open({
+    trigger,
+    title: 'Preview ' + trigger.textContent.trim(),
+    description: dirty ? 'Applying this template replaces the destinations in your unsaved draft.' : 'Review the example allocations before adding them to your draft.',
+    facts: [['Asset', symbol], ['Allocation', proRata ? 'Share of available budget' : 'By priority']],
+    rows: PRESETS[preset].map(({ label, fixed, bps, active }) => ({
+      label,
+      address: 'Example recipient',
+      terms: Number(fixed) > 0 ? `${fixed} ${symbol} fixed` : `${bps}%`,
+      active,
+    })),
+    note: state.demoMode ? 'Run a sample income to see the result.'
+      : 'Edit the example recipients and amounts before saving.',
+    confirm: 'Apply to draft',
+  });
+  if (!confirmed || !reviewWalletIsCurrent(signer)) return false;
+  if (JSON.stringify(state.buckets) === draft) return true;
+  toast('The draft changed. Preview the template again.', true);
+  return false;
+}
+
+function saveReviewRows(buckets) {
+  const percentageBase = state.allocationMode === 1 ? 'of available budget' : 'of income';
+  return buckets.map(({ payee, fixedAmount, bps, active }, index) => {
+    const draft = state.buckets[index];
+    const savings = bucketDestination(draft) === 'aave';
+    const label = draft.label?.trim() || (savings ? 'Aave V3 supply' : 'Wallet transfer');
+    const fixed = fixedAmount > 0n ? `${formatUnits(fixedAmount, state.decimals)} ${state.symbol} fixed` : '';
+    const rate = bps > 0 ? `${bps / 100}% ${percentageBase}` : '';
+    return {
+      label: savings && label !== 'Aave V3 supply' ? `${label} · Aave V3 supply` : label,
+      address: payee === ZERO ? 'No recipient' : payee,
+      terms: [fixed, rate].filter(Boolean).join(' + '),
+      active,
+    };
+  });
+}
+
 async function saveRule(event) {
   event.preventDefault();
   if (!state.signer) {
@@ -1714,6 +1793,9 @@ async function saveRule(event) {
     }
     const totalBps = buckets.filter((bucket) => bucket.active).reduce((sum, bucket) => sum + bucket.bps, 0);
     if (totalBps > 10_000) throw new Error("Active percentages cannot exceed 100%.");
+    if (state.allocationMode === 1 && buckets.some(bucket => bucket.active && bucket.fixedAmount > 0n)) {
+      throw new Error("Pro-rata mode uses percentages. Clear the fixed amounts or save priority mode first.");
+    }
   } catch (err) {
     showRuleError(err.message);
     toast(err.message, true);
@@ -1721,17 +1803,43 @@ async function saveRule(event) {
   }
 
   const button = $("#save-rule");
+  const { signer, split, account, provider, injected, ruleVersion, allocationMode, draftAllocationMode } = state;
+  const ids = state.buckets.map((bucket, index) => bucket.identityPayee === buckets[index].payee.toLowerCase()
+    && /^\d+$/.test(bucket.id || '') ? BigInt(bucket.id) : 0n);
+  const draft = JSON.stringify(state.buckets);
+  const confirmed = await actionReview.open({
+    trigger: event.submitter || button,
+    title: 'Review destinations',
+    description: 'Check the recipient addresses and allocation order before saving your waterfall.',
+    facts: [...reviewFacts(), ['Allocation', allocationMode === 1 ? 'Share of available budget' : 'By priority']],
+    rows: saveReviewRows(buckets),
+    note: draftAllocationMode !== allocationMode
+      ? 'These destinations use the current mode shown above. Save your pending mode change in Allocation settings.'
+      : 'Saving updates the rules for future runs. Set a spending limit separately to let the waterfall route income.',
+    confirm: 'Continue to wallet',
+  });
+  if (!confirmed || !reviewWalletIsCurrent(signer)) return;
+  if (state.syncStatus !== 'ready' || state.ruleVersion !== ruleVersion || state.allocationMode !== allocationMode
+      || state.draftAllocationMode !== draftAllocationMode || JSON.stringify(state.buckets) !== draft) {
+    showRuleError('The saved plan or draft changed. Review the current destinations again.');
+    return;
+  }
+
   state.busy = true;
   $("#rule-form").inert = true;
   setBusy(button, "Saving…", true);
-  const { signer, split, account, injected } = state;
   try {
-    if (savingsPayee) {
-      await incomeModules.verifySavingsDestination(savingsPayee);
-      await verifyWalletContext(injected, chainId, account);
-      if (signer !== state.signer) return;
+    const at = { blockTag: await provider.send('eth_blockNumber', []) };
+    const [version, mode] = await Promise.all([
+      split.ruleVersion(account, deployment.token, at),
+      split.allocationModes(account, deployment.token, at),
+      savingsPayee ? incomeModules.verifySavingsDestination(savingsPayee) : undefined,
+    ]);
+    if (version !== BigInt(ruleVersion) || Number(mode) !== allocationMode) {
+      throw new Error('The saved rule changed. Refresh the workspace before saving.');
     }
-    const ids = state.buckets.map(b=>/^\d+$/.test(b.id||'') ? BigInt(b.id) : 0n);
+    await verifyWalletContext(injected, chainId, account);
+    if (signer !== state.signer) return;
     const tx = await split.connect(signer).setBucketsWithIds(deployment.token, buckets, ids);
     clearRuleError();
     toast("Destination changes submitted.", false, tx.hash);
@@ -1763,17 +1871,42 @@ function readAllowanceAmount() {
 }
 
 async function approve() {
-  if (state.demoMode) {
-    try { state.allowance = readAllowanceAmount(); renderAllowance(); }
-    catch (error) { toast(error.message, true); }
-    return;
-  }
-  if (!state.signer || state.busy) return;
-  if (state.syncStatus !== "ready") { toast("Refresh the onchain plan before approving.", true); return; }
+  if (state.busy || (!state.demoMode && !state.signer)) return;
+  if (!state.demoMode && state.syncStatus !== "ready") { toast("Refresh the onchain plan before approving.", true); return; }
   let requested;
   try { requested = readAllowanceAmount(); }
   catch (error) { showAllowanceStatus(error.message); return; }
-  await changeAllowance(requested, $("#approve-btn"));
+  await reviewAllowance(requested, $("#approve-btn"));
+}
+
+async function reviewAllowance(requested, button) {
+  const { allowance, signer, demoMode, decimals, symbol } = state;
+  const revoking = requested === 0n;
+  const confirmed = await actionReview.open({
+    trigger: button,
+    title: revoking ? 'Revoke spending permission?' : 'Review spending limit',
+    description: revoking
+      ? 'Setting the allowance to zero prevents the waterfall from pulling more funds under this permission. Your saved destinations stay available.'
+      : 'This is the maximum the split contract can pull from your wallet for this asset.',
+    facts: [
+      ...reviewFacts(),
+      ['Last known allowance', allowance === MaxUint256 ? 'Unlimited' : `${formatUnits(allowance, decimals)} ${symbol}`],
+      ['Requested allowance', `${formatUnits(requested, decimals)} ${symbol}`],
+      ...(!demoMode ? [['Spending contract', deployment.split]] : []),
+    ],
+    note: demoMode ? 'This changes the simulator in this tab.'
+      : revoking ? 'The transaction status appears below the spending controls.'
+        : 'If a different limit is already set, your wallet may ask you to clear it before approving the new one.',
+    confirm: demoMode ? (revoking ? 'Revoke demo allowance' : 'Set demo allowance') : 'Continue to wallet',
+  });
+  if (!confirmed || !reviewWalletIsCurrent(signer)) return;
+  if (demoMode) {
+    state.allowance = requested;
+    renderAllowance();
+    showAllowanceStatus(revoking ? 'Demo allowance revoked.' : 'Demo allowance updated.');
+    return;
+  }
+  await changeAllowance(requested, button);
 }
 
 function showAllowanceStatus(message, hash) {
@@ -1888,6 +2021,19 @@ function runDemoIncome(silent = false) {
 }
 
 async function pauseAll() {
+  if (state.busy || (!state.demoMode && (!state.signer || !state.savedActive))) return;
+  const { signer, split, account, provider, injected, ruleVersion, savedActive } = state;
+  const confirmed = await actionReview.open({
+    trigger: $("#pause-rule"),
+    title: 'Pause all destinations?',
+    description: state.demoMode ? 'All destinations in this sample plan will become inactive.'
+      : 'All saved destinations for this asset will become inactive. Your spending allowance and any unsaved draft stay available.',
+    facts: [...reviewFacts(), ['Active destinations', String(state.demoMode ? state.buckets.filter(bucket => bucket.active).length : savedActive)]],
+    note: state.demoMode ? 'Turn destinations back on to resume the sample.'
+      : 'To resume routing, turn destinations back on and save the plan.',
+    confirm: state.demoMode ? 'Pause sample plan' : 'Continue to wallet',
+  });
+  if (!confirmed || !reviewWalletIsCurrent(signer)) return;
   if (state.demoMode) {
     state.buckets = state.buckets.map((bucket) => ({ ...bucket, active: false }));
     state.dirty = true;
@@ -1896,15 +2042,16 @@ async function pauseAll() {
     toast("Demo rule paused. All buckets are inactive.");
     return;
   }
-  if (!state.signer || state.busy) return;
-
-  const { signer, split, account, provider } = state;
   state.busy = true;
   try {
     const at = { blockTag: await provider.send('eth_blockNumber', []) };
-    const raw = await split.getBuckets(account, deployment.token, at);
+    const [raw, version] = await Promise.all([
+      split.getBuckets(account, deployment.token, at),
+      split.ruleVersion(account, deployment.token, at),
+    ]);
+    if (version !== BigInt(ruleVersion)) throw new Error('The saved plan changed. Refresh it before pausing destinations.');
     const buckets = raw.map(({ payee, fixedAmount, bps }) => ({ payee, fixedAmount, bps, active: false }));
-    await verifyWalletContext(state.injected, chainId, account);
+    await verifyWalletContext(injected, chainId, account);
     if (signer !== state.signer || !buckets.length) return;
     const tx = await split.connect(signer).setBuckets(deployment.token, buckets);
     const receipt = await tx.wait();
@@ -1921,14 +2068,8 @@ async function pauseAll() {
 }
 
 async function revokeAllowance() {
-  if (state.demoMode) {
-    state.allowance = 0n;
-    renderAllowance();
-    toast("Demo allowance revoked.");
-    return;
-  }
-  if (!state.signer || state.busy) return;
-  await changeAllowance(0n, $("#revoke-allowance"));
+  if (state.busy || (!state.demoMode && !state.signer) || state.allowance === 0n) return;
+  await reviewAllowance(0n, $("#revoke-allowance"));
 }
 
 function runNow() {
@@ -2167,10 +2308,13 @@ function wire() {
   });
 
   document.querySelectorAll("[data-mode]").forEach((button) => {
-    button.addEventListener("click", () => {
-      if (state.busy || (!state.demoMode && state.dirty && !window.confirm('Replace the current destination draft with this template?'))) return;
-      state.mode = button.dataset.mode;
-      state.buckets = clonePreset(state.mode === "team" ? "team" : "freelancer");
+    button.addEventListener("click", async () => {
+      const mode = button.dataset.mode;
+      if (state.busy || mode === state.mode) return;
+      const preset = mode === "team" ? "team" : "freelancer";
+      if (state.dirty && !await reviewTemplate(button, preset)) return;
+      state.mode = mode;
+      state.buckets = clonePreset(preset);
       state.samplePaycheck = state.mode === "team" && !wrappedAsset ? "5000" : defaultSample;
       $("#sample-input").value = String(state.samplePaycheck);
       $("#sample-input").removeAttribute('aria-invalid');
@@ -2194,10 +2338,11 @@ function wire() {
   });
 
   document.querySelectorAll("[data-preset]").forEach((button) => {
-    button.addEventListener("click", () => {
-      if (state.busy || (!state.demoMode && state.dirty && !window.confirm('Replace the current destination draft with this template?'))) return;
-      state.buckets = clonePreset(button.dataset.preset);
-      state.draftAllocationMode=['balanced','emergency'].includes(button.dataset.preset) ? 1 : 0;
+    button.addEventListener("click", async () => {
+      const preset = button.dataset.preset;
+      if (state.busy || !await reviewTemplate(button, preset)) return;
+      state.buckets = clonePreset(preset);
+      state.draftAllocationMode=['balanced','emergency'].includes(preset) ? 1 : 0;
       $("#allocation-mode").value=String(state.draftAllocationMode);
       state.dirty = true;
       renderBuckets();
@@ -2245,7 +2390,7 @@ function wire() {
         case 'connect': void connect(); break;
         case 'unavailable': void incomeModules.refresh(); break;
         case 'create':
-        case 'bind': void incomeModules.setupSavings(savings.dataset.step); break;
+        case 'bind': void incomeModules.setupSavings(savings.dataset.step, savings); break;
       }
       return;
     }
