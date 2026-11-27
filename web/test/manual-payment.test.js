@@ -65,17 +65,21 @@ test('broadcast tracking survives opening the dialog again and a reload, then sh
     actions: {
       pay: async (_, __, signing) => {
         signing();
+        assert.equal($('#manual-stages [aria-current="step"]').textContent, 'Wallet');
         walletCalls++;
         return { transaction: { hash, wait: async () => { throw new Error('RPC unavailable'); } } };
       },
     },
   });
   panel.open('10');
+  assert.equal($('#manual-stages [aria-current="step"]').textContent, 'Review');
   review();
   await until(() => !$('#manual-send').disabled);
   assert.match($('#manual-totals').textContent, /7\.0 dUSDC to pay/);
   $('#manual-send').click();
   await until(() => $('#manual-status').textContent.includes('Confirmation is unavailable'));
+  assert.equal($('#manual-stages').dataset.phase, 'pending');
+  assert.equal($('#manual-stages [aria-current="step"]').textContent, 'Receipt');
   assert.equal(walletCalls, 1);
   assert.equal(panel.hasPending(), true);
   assert.equal($('#manual-amount').disabled, true);
@@ -99,6 +103,7 @@ test('broadcast tracking survives opening the dialog again and a reload, then sh
   assert.equal(page('#manual-send').textContent, 'Check confirmation');
   page('#manual-send').click();
   await until(() => page('#manual-send').textContent === 'Open history');
+  assert.equal(page('#manual-stages').dataset.phase, 'confirmed');
   assert.match(page('#manual-totals').textContent, /5\.000001 dUSDC paid · 4\.999999 dUSDC unallocated · 1 bucket skipped/);
   assert.equal(page('#manual-payouts').children.length, 1);
   assert.deepEqual(confirmed, [hash]);

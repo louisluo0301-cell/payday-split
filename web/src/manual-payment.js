@@ -43,6 +43,7 @@ export function createManualPayment({
   const doc = dialog.ownerDocument;
   const input = $('#manual-amount');
   const status = $('#manual-status');
+  const stages = $('#manual-stages');
   const preview = $('#manual-preview');
   const send = $('#manual-send');
   const list = $('#manual-payouts');
@@ -64,6 +65,7 @@ export function createManualPayment({
   let forgetArmed = false;
   let reading = false;
   let sending = false;
+  let waitingForWallet = false;
   let revision = 0;
 
   function current(ctx) {
@@ -107,6 +109,15 @@ export function createManualPayment({
 
   function buttons() {
     const transaction = shownTransaction;
+    const phase = transaction?.phase ?? (waitingForWallet ? 'wallet' : 'review');
+    if (stages.dataset.phase !== phase) {
+      stages.dataset.phase = phase;
+      const currentStage = transaction ? 2 : waitingForWallet ? 1 : 0;
+      for (const [index, step] of [...stages.children].entries()) {
+        if (index === currentStage) step.setAttribute('aria-current', 'step');
+        else step.removeAttribute('aria-current');
+      }
+    }
     $('#manual-title').textContent = transaction ? 'Manual payment status' : 'Review a new payment';
     preview.hidden = !!transaction;
     preview.disabled = reading || sending;
@@ -294,7 +305,10 @@ export function createManualPayment({
         return;
       }
       const { quote, transaction } = await pay(snapshot, current, () => {
-        if (current(snapshot.ctx)) status.textContent = 'Review and confirm the transaction in your wallet.';
+        if (!current(snapshot.ctx)) return;
+        waitingForWallet = true;
+        status.textContent = 'Review and confirm the transaction in your wallet.';
+        buttons();
       });
       if (transaction) {
         if (!HASH_PATTERN.test(transaction.hash)) {
@@ -310,6 +324,7 @@ export function createManualPayment({
       if (current(snapshot.ctx)) clear(errorMessage(error));
     } finally {
       sending = false;
+      waitingForWallet = false;
       buttons();
     }
   }

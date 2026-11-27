@@ -20,6 +20,11 @@ test('demo dashboard boots, saves controls, respects pause and manages allowance
     assert.equal($('#hero-demo').hash, '#proof');
     assert.equal($('#workspace-next-action').dataset.action, 'sample');
     const sample = $('#sample-input');
+    const rentSegment = $('#waterfall-bar').firstElementChild;
+    sample.value = '800';
+    sample.dispatchEvent(new window.Event('input', { bubbles: true }));
+    assert.equal($('#waterfall-bar').firstElementChild, rentSegment);
+    assert.equal(rentSegment.style.width, '37.5%');
     sample.value = '0';
     sample.dispatchEvent(new window.Event('input', { bubbles: true }));
     assert.equal(sample.getAttribute('aria-invalid'), 'true');
@@ -45,6 +50,7 @@ test('demo dashboard boots, saves controls, respects pause and manages allowance
     assert.match($('#health-items').textContent,/Sample spending plan is paused/);
     $('#faucet-btn').click();
     assert.match($('.activity-group').textContent,/1,000|1000/);
+    assert.equal(window.document.querySelectorAll('.activity-group.motion-enter').length, 1);
     $('#policy-paused').checked = false;
     $('#policy-maxPerRun').value = '400';
     $('#save-policy').click();

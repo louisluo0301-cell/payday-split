@@ -27,6 +27,7 @@ import { createManualPayment, paymentQuoteKey } from "./manual-payment.js";
 import { createBrowserWallet } from "./browser-wallet.js";
 import { DEPLOYMENT_SESSION, parseTestnetDeployment, wireTestnetDeployment } from "./browser-deployment.js";
 import { readFaucet, readWalletSnapshot } from "./wallet-snapshot.js";
+import { updateWalletAllowance } from "./wallet-allowance.js";
 
 let demoPolicy = {};
 let demoSpent = 0n;
@@ -589,7 +590,7 @@ function attachWalletEvents(injected) {
 
 async function connect() {
   if (state.demoMode) {
-    document.querySelector("#dashboard")?.scrollIntoView({ behavior: "smooth" });
+    document.querySelector("#dashboard")?.scrollIntoView({ block: "start" });
     return;
   }
   if (!configured) {
@@ -1035,23 +1036,22 @@ function updateSummary() {
   setText("allocated-label", `${fmt(routed)} routed`);
 
   const bar = $("#waterfall-bar");
-  bar.innerHTML = "";
-  rows.forEach((row) => {
-    if (row.paid <= 0) return;
-    const seg = document.createElement("span");
-    seg.className = "waterfall-seg";
-    seg.style.width = `${row.pct}%`;
-    seg.style.background = row.color;
-    seg.title = `${row.label}: ${fmt(row.paid)}`;
-    bar.append(seg);
-  });
+  const segments = rows.filter(row => row.paid > 0n);
   if (remaining > 0) {
-    const seg = document.createElement("span");
-    seg.className = "waterfall-seg waterfall-retained";
-    seg.style.width = `${percent(remaining)}%`;
-    seg.title = `Retained: ${fmt(remaining)}`;
-    bar.append(seg);
+    segments.push({ label: "Retained", paid: remaining, pct: percent(remaining), color: "", retained: true });
   }
+  segments.forEach((segment, index) => {
+    let node = bar.children[index];
+    if (!node) {
+      node = document.createElement("span");
+      bar.append(node);
+    }
+    node.className = segment.retained ? "waterfall-seg waterfall-retained" : "waterfall-seg";
+    node.style.width = `${segment.pct}%`;
+    node.style.background = segment.color;
+    node.title = `${segment.label}: ${fmt(segment.paid)}`;
+  });
+  while (bar.children.length > segments.length) bar.lastElementChild.remove();
 
   const legend = $("#waterfall-legend");
   legend.innerHTML = "";
@@ -1080,7 +1080,9 @@ function updateSummary() {
 
 function updateModeUI() {
   document.querySelectorAll("[data-mode]").forEach((button) => {
-    button.classList.toggle("active", button.dataset.mode === state.mode);
+    const active = button.dataset.mode === state.mode;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
   });
   setText("waterfall-title", state.mode === "team" ? "Team payroll waterfall" : "Your waterfall");
 }
@@ -1096,6 +1098,7 @@ function renderDisconnected() {
   setText("approval-unit", "(" + state.symbol + ")");
   if (document.activeElement !== $("#sample-input")) $("#sample-input").value = String(state.samplePaycheck);
   setText("allowance-pill", "Allowance —");
+  setText("allowance-status", "");
   setText("split-count", "0 splits");
   setText("total-saved", "0.00");
   setText("total-retained", "0.00");
@@ -1218,6 +1221,7 @@ function renderActivity() {
   }
 
   if (!state.groups.length && !state.skips.length) {
+    list.dataset.latestRun = "";
     list.innerHTML = `
       <div class="empty">
         <span class="empty-mark">◎</span>
@@ -1228,6 +1232,10 @@ function renderActivity() {
   }
 
   list.innerHTML = "";
+  const newest = state.groups[0];
+  const latestRun = newest ? [newest.txHash, newest.originHash, newest.logIndex].join(":") : "";
+  const hasNewRun = list.dataset.latestRun !== undefined && list.dataset.latestRun !== latestRun;
+  list.dataset.latestRun = latestRun;
 
   if (splitCount > 0) {
     const summary = document.createElement("div");
@@ -1239,6 +1247,7 @@ function renderActivity() {
   for (const group of state.groups.slice(0, 10)) {
     const wrapper = document.createElement("div");
     wrapper.className = "activity-group";
+    if (group === newest && hasNewRun) wrapper.classList.add("motion-enter");
 
     const head = document.createElement("div");
     head.className = "activity-group-head";
@@ -1648,39 +1657,81 @@ async function approve() {
   }
   if (!state.signer || state.busy) return;
   if (state.syncStatus !== "ready") { toast("Refresh the onchain plan before approving.", true); return; }
+  let requested;
+  try { requested = readAllowanceAmount(); }
+  catch (error) { showAllowanceStatus(error.message); return; }
+  await changeAllowance(requested, $("#approve-btn"));
+}
+
+function showAllowanceStatus(message, hash) {
+  const status = $("#allowance-status");
+  status.textContent = message;
+  const href = hash ? txUrl(hash) : null;
+  if (!href) return;
+  const link = document.createElement("a");
+  link.className = "trace-link";
+  link.href = href;
+  link.target = "_blank";
+  link.rel = "noreferrer";
+  link.textContent = "View transaction ↗";
+  status.append(" ", link);
+}
+
+async function changeAllowance(requested, button) {
   state.busy = true;
-  const button = $("#approve-btn");
-  const { token, account, signer } = state;
-  let clearReceipt;
-  setBusy(button, "Approving…", true);
+  const { token, account, signer, provider, injected } = state;
+  const isCurrent = () => signer === state.signer && provider === state.provider;
+  let lastReceipt;
+  let clearedForReplacement = false;
+  setBusy(button, requested === 0n ? "Revoking…" : "Approving…", true);
+  showAllowanceStatus("Checking the onchain allowance…");
+
+  async function requireWallet() {
+    await verifyWalletContext(injected, chainId, account);
+    if (!isCurrent()) throw new Error("The wallet changed. Connect again to update its allowance.");
+  }
+
   try {
-    const amount = readAllowanceAmount();
-    if (amount === state.allowance) { toast("This amount is already approved."); return; }
-    await verifyWalletContext(state.injected, chainId, account);
-    if (signer !== state.signer) return;
-    if (state.allowance > 0n) {
-      toast("Your wallet will ask to clear the current allowance, then approve the new amount.");
-      const reset = await token.connect(signer).approve(deployment.split, 0);
-      clearReceipt = await reset.wait();
-      if (signer !== state.signer) return;
-      await verifyWalletContext(state.injected, chainId, account);
-      if (signer !== state.signer) return;
-    }
-    const tx = await token.connect(signer).approve(deployment.split, amount);
-    const receipt = await tx.wait();
-    if (signer !== state.signer) return;
+    await requireWallet();
+    const { allowance, blockNumber, receipt } = await updateWalletAllowance({
+      provider, token, account, splitAddress: deployment.split, requested, afterBlock: walletBlockFloor,
+      onReset: () => showAllowanceStatus("Clear the current allowance in your wallet before approving the new amount."),
+      submit: async amount => {
+        clearedForReplacement = amount > 0n && !!lastReceipt;
+        await requireWallet();
+        const tx = await token.connect(signer).approve(deployment.split, amount);
+        if (isCurrent()) showAllowanceStatus("Allowance transaction submitted. Waiting for confirmation…", tx.hash);
+        const receipt = await tx.wait();
+        if (receipt?.status === 1) {
+          lastReceipt = receipt;
+          clearedForReplacement = false;
+        }
+        return receipt;
+      },
+    });
+    if (!isCurrent()) return;
+    state.allowance = allowance;
     lastHealth = null;
-    toast("Allowance confirmed.", false, tx.hash);
-    await refreshAll({ afterBlock: receipt.blockNumber });
-  } catch (err) {
-    if (signer === state.signer) {
-      if (clearReceipt) await refreshAll({ afterBlock: clearReceipt.blockNumber });
-      toast(clearReceipt ? "The old allowance was cleared. " + humanError(err) : humanError(err), true);
+    if (!receipt) {
+      showAllowanceStatus(requested === 0n ? "The onchain allowance is already zero." : "The requested allowance is already set.");
+    } else if (allowance === requested) {
+      showAllowanceStatus(requested === 0n ? "Onchain allowance revoked." : "Onchain allowance confirmed.", receipt.hash);
+    } else {
+      showAllowanceStatus("Transaction confirmed. Current allowance is " + formatUnits(allowance, state.decimals)
+        + " " + state.symbol + ".", receipt.hash);
+    }
+    await refreshAll({ afterBlock: blockNumber });
+  } catch (error) {
+    if (isCurrent()) {
+      const prefix = !lastReceipt ? "" : clearedForReplacement
+        ? "The old allowance was cleared. " : "An allowance transaction confirmed. ";
+      showAllowanceStatus(prefix + humanError(error), lastReceipt?.hash);
+      if (lastReceipt) await refreshAll({ afterBlock: lastReceipt.blockNumber });
     }
   } finally {
     state.busy = false;
     setBusy(button, "", false);
-    if (state.signer) renderAllowance();
+    renderAllowance();
   }
 }
 
@@ -1764,21 +1815,7 @@ async function revokeAllowance() {
     return;
   }
   if (!state.signer || state.busy) return;
-
-  state.busy = true;
-  const { signer } = state;
-  try {
-    const tx = await state.token.connect(signer).approve(deployment.split, 0);
-    const receipt = await tx.wait();
-    if (signer !== state.signer) return;
-    lastHealth = null;
-    toast("Allowance revoked. The plan cannot spend this asset.", false, tx.hash);
-    await refreshAll({ afterBlock: receipt.blockNumber });
-  } catch (err) {
-    toast(humanError(err), true);
-  } finally {
-    state.busy = false;
-  }
+  await changeAllowance(0n, $("#revoke-allowance"));
 }
 
 function runNow() {
@@ -2213,6 +2250,7 @@ function boot() {
     setText("network-label", "Simulation · no wallet required");
     setText("wallet-label", "Demo mode");
     $("#wallet-chip").classList.add("connected");
+    $("#workspace-link").hidden = true;
     setText("connect-top", "Workspace");
     setText("connect-hero", "Open sample workspace");
 

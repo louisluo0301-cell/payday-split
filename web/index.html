@@ -33,7 +33,7 @@
         <span class="brand-name">PaydaySplit</span>
       </a>
       <nav class="nav" aria-label="Product">
-        <a href="#dashboard">Workspace</a>
+        <a href="#dashboard" id="workspace-link">Workspace</a>
         <a href="#proof">Testnet proof</a>
         <a href="#how">How it works</a>
         <button class="btn btn-small btn-ink" id="connect-top" type="button">Connect wallet</button>
@@ -42,6 +42,7 @@
 
     <main id="top">
       <section class="hero">
+        <canvas id="hero-particles" class="hero-particles" aria-hidden="true"></canvas>
         <div class="hero-copy">
           <h1>A plan for <em>every payday.</em></h1>
           <p class="lede">
@@ -88,7 +89,7 @@
       </section>
 
       <section id="proof" class="chain-proof" aria-labelledby="proof-title">
-        <div class="chain-proof-panel">
+        <div class="chain-proof-panel" data-reveal>
           <div class="chain-proof-header">
             <div>
               <h2 id="proof-title">Follow a real testnet payout</h2>
@@ -150,7 +151,7 @@
           <button id="open-deployment" class="btn btn-small btn-outline" type="button">Open testnet workspace</button>
         </div>
 
-        <section class="workspace-next" aria-labelledby="workspace-next-title">
+        <section class="workspace-next" aria-labelledby="workspace-next-title" data-reveal>
           <div class="workspace-next-head">
             <div class="workspace-next-copy" role="status" aria-atomic="true">
               <p id="workspace-scope" class="workspace-scope">PaydaySplit</p>
@@ -175,8 +176,8 @@
             </div>
 
             <div class="mode-switch" role="group" aria-label="Waterfall mode">
-              <button type="button" class="mode-btn active" data-mode="personal">Personal</button>
-              <button type="button" class="mode-btn" data-mode="team">Team payroll</button>
+              <button type="button" class="mode-btn active" data-mode="personal" aria-pressed="true">Personal</button>
+              <button type="button" class="mode-btn" data-mode="team" aria-pressed="false">Team payroll</button>
             </div>
 
             <div class="rule-readout">
@@ -226,7 +227,6 @@
 
               <div class="rule-actions">
                 <button class="link-btn" id="pause-rule" type="button">Pause all</button>
-                <button class="link-btn" id="revoke-allowance" type="button">Revoke allowance</button>
               </div>
 
               <p id="rule-error" class="rule-error" role="alert" hidden></p>
@@ -254,9 +254,11 @@
                 </div>
                 <div class="approval-entry">
                   <label for="approval-amount">Allowance amount <span id="approval-unit"></span></label>
-                  <input id="approval-amount" type="text" inputmode="decimal" aria-describedby="approval-note" value="1000">
+                  <input id="approval-amount" type="text" inputmode="decimal" aria-describedby="approval-note allowance-status" value="1000">
                   <button class="btn btn-small btn-outline" id="approve-btn" type="button" disabled>Approve</button>
                 </div>
+                <button class="link-btn" id="revoke-allowance" type="button" disabled>Revoke allowance</button>
+                <p class="fineprint allowance-status" id="allowance-status" role="status"></p>
               </div>
 
               <div class="action-step" id="step-paycheck">
@@ -499,7 +501,7 @@
           </p>
         </div>
 
-        <div class="loop-diagram">
+        <div class="loop-diagram" data-reveal>
           <div class="loop-node">
             <div class="node-tag">Origin</div>
             <h3>Income lands</h3>
@@ -624,6 +626,11 @@
           <h3 id="manual-title">Review a new payment</h3>
           <p id="manual-context"></p>
         </header>
+        <ol class="manual-stages" id="manual-stages" aria-label="Payment progress">
+          <li aria-current="step">Review</li>
+          <li>Wallet</li>
+          <li>Receipt</li>
+        </ol>
         <label for="manual-amount">Income amount to allocate</label>
         <div class="manual-amount">
           <input id="manual-amount" type="text" inputmode="decimal" autocomplete="off" aria-describedby="manual-status">
@@ -662,5 +669,6 @@ Ops,0x3333333333333333333333333333333333333333,800"></textarea>
     </div>
 
     <script type="module" src="/src/main.js"></script>
+    <script type="module" src="/src/presentation.js"></script>
   </body>
 </html>

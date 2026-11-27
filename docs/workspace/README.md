@@ -8,7 +8,7 @@
 - 如果已有部署，在 **Open testnet workspace** 选择部署 JSON 或粘贴内容。支持 Ethereum Sepolia、Base Sepolia 和 Unichain Sepolia，Reactive 侧为 Lasna。页面用已知的公共 RPC 核对合约代码和绑定，配置保存在当前浏览器标签页。选择 **Use bundled deployment** 可恢复打包配置。
 - 工作台根据当前钱包、已保存的去向、支出授权和自动化检查提示下一步。修改草稿时仍会提示链上沿用已保存的规则。演示模式可直接运行一笔样例，页面会定位到对应的记录。
 - 授权金额和操作按钮放在一起，支出限额和暂停设置按需展开。暂停已保存的去向时保留编辑器草稿。付款历史区分样例收入、来源收入分账与新手动付款。
-- 新手动付款先显示选定网络、资产、收款地址、预计实付和未分配金额。发往钱包前重新读取链上预演，如果金额或收款规则变了，先展示更新结果。补发已有转账仍从 **Income trace** 进入。
+- 新手动付款按 **Review → Wallet → Receipt** 显示进度。签名前重新读链上预演，报价变化时要求再次审阅。钱包广播后可按交易哈希查询，页面拿到回执才显示实际分账和留存。补发已有转账从 **Income trace** 进入。
 - Circle 测试归集的销毁和铸造按钮会分别发起来源与目标测试网切换，并复核钱包账户后进入对应步骤。
 
 [桌面工作台引导](ux/desktop-setup-guide.png) · [手机付款预演](ux/mobile-manual-review.png) · [本地浏览器测试记录](ux/browser-local-evidence.json)
@@ -16,6 +16,7 @@
 ## 前端与合约同步
 
 - 余额、授权、已保存的规则和支出设置从同一目标链区块读取。收到交易确认后，刷新会包含该交易所在区块。RPC 尚未同步时，工作台提示重试。
+- 更改授权前读取当前链上额度。替换非零额度时，先在钱包签署清零并核对链上结果，再签署新额度。确认后显示实际可用额度。
 - 领取测试收入后，可以点 **Trace this income** 查看这笔收入。来源交易确认后，页面继续跟踪回调，同时可以继续使用工作台。
 - 本地回调监听按资产和账户读取已保存的规则，支持由任意本地测试钱包完成同一流程。独立浏览器实测第二个钱包领取 1,000 dUSDC 后自动分出 700，留存 300。重复处理后的新增回调数为 0。[双钱包本地验收记录](integration/browser-local-evidence.json)
 - 合约接口由 `node web/script/contract-abi.mjs` 从 Foundry 构建产物生成，GitHub CI 检查接口是否同步。
@@ -27,9 +28,9 @@
 
 ## 本地复现
 
-先在项目的 `web` 目录运行 `npm ci`。从项目根目录执行 `pwsh ./script/local-demo.ps1 -Port 18673`，可换用任意空闲端口。若已有 Anvil，脚本会保留现有状态。只有显式传入 `-Reset` 才清除指定端口的本地 Anvil 链。
+先在项目的 `web` 目录运行 `npm ci`。从项目根目录执行 `pwsh ./script/local-demo.ps1 -Port 18673`，可换用任意空闲端口。端口已被 Anvil 使用时，请换端口。只有在准备重置该本地链时才传入 `-Reset`。
 
-回到 `web`，分别打开两个终端运行 `npm run dev` 和 `npm run local:watch`。访问 `http://127.0.0.1:5173/?local=1`，连接对应端口的 Anvil 网络与公开测试账户。监听器按区块和日志顺序处理规则变更及所配置资产的入账。可用 `npm run local:process` 单次处理，已有监听器运行时由它负责处理。
+回到 `web`，分别打开两个终端运行 `npm run dev` 和 `npm run local:watch`。访问 `http://127.0.0.1:5173/?local=1`，用公开测试账户连接链 ID 31337。钱包的 RPC 端口要与启动 Anvil 时使用的端口相同。监听器按区块和日志顺序处理规则变更及资产入账。需要单次处理时，先停掉监听器，再运行 `npm run local:process`。
 
 用 **Demo USDC** 试分账、Aave 模拟储备和消费冷静期。用 **Wrapped ETH** 建好专用收款地址，保存并授权 WETH 规则，再向该地址发送本地 ETH。
 
@@ -49,4 +50,4 @@
 
 [桌面补付凭证](desktop-retry-receipt.png) · [手机资产选择](mobile-asset-picker.png) · [本地浏览器证据](browser-local-evidence.json) · [一键部署交易证据](anvil-setup-evidence.json) · [测试说明](../TESTING.md)
 
-本地验收使用 Anvil、MockSystem、MockProxy 和模拟 Aave 储备。正式产品的公共测试网回调、Circle 跨链实付和外部审计仍待完成。
+本地验收使用 Anvil、MockSystem、MockProxy 和模拟 Aave 储备。新版部署、Circle 跨链实付和独立审计的验收范围见 [商用上线条件](../SECURITY.md#production-launch)。
