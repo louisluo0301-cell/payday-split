@@ -13,6 +13,7 @@ const next = changes => workspaceJourney({ ...live, ...changes });
 test('the workspace directs users through wallet, destinations and allowance before receiving', () => {
   assert.equal(next({ configured: false, connected: false }).action, 'connect');
   assert.equal(next({ configured: false, connected: false, walletLinked: true }).action, 'deployment');
+  assert.equal(next({ configured: false, connected: false, sessionDeploymentMissing: true, invalidAsset: true }).action, 'deployment');
   assert.equal(next({ demo: true, configured: false, walletLinked: true }).action, 'sample');
   assert.equal(next({ invalidAsset: true, configured: false }).action, 'asset');
   assert.equal(next({ connected: false }).action, 'connect');
@@ -25,9 +26,10 @@ test('the workspace directs users through wallet, destinations and allowance bef
 });
 
 test('the receive action requires verifiable automation readiness', () => {
-  assert.equal(next({ report: null }).action, 'health');
-  assert.equal(next({ report: { ...checked, complete: false } }).action, 'health');
-  assert.equal(next({ report: { status: 'attention', alerts: [{ id: 'mirror', severity: 'warning' }] } }).action, 'health');
+  assert.equal(next({ report: null }).action, 'check-health');
+  assert.equal(next({ report: { ...checked, complete: false } }).action, 'check-health');
+  assert.equal(next({ report: { complete: false, status: 'blocked', alerts: [{ id: 'chain-Destination', severity: 'blocked' }] } }).action, 'health');
+  assert.equal(next({ report: { complete: true, status: 'attention', alerts: [{ id: 'mirror', severity: 'warning' }] } }).action, 'health');
   assert.equal(next({ report: { status: 'blocked', alerts: [{ id: 'plan-paused', severity: 'blocked' }] } }).action, 'spending');
   assert.equal(next({ report: checked, nativeReceiver: true }).action, 'native');
 });

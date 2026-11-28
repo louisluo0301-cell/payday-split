@@ -8,6 +8,7 @@ export function createBrowserWallet({ $, browser, onChange }) {
   const checkAgain = $('#wallet-check-again');
   const demoLink = $('#wallet-open-demo');
   const accountDialog = $('#wallet-account-dialog');
+  const accountDeployment = $('#wallet-account-open-deployment');
   const document = dialog.ownerDocument;
   const announced = new Map();
   const alreadyDemo = new URLSearchParams(browser.location.search).has('demo');
@@ -77,6 +78,14 @@ export function createBrowserWallet({ $, browser, onChange }) {
   $('#wallet-cancel').addEventListener('click', () => finish(null));
   dialog.addEventListener('close', () => { if (pending && !dialog.open) finish(null); });
   $('#wallet-account-close').addEventListener('click', closeAccount);
+  accountDeployment.addEventListener('click', () => {
+    if (!accountDialog.open || accountDeployment.hidden) return;
+    const deploymentOpener = $('#open-deployment');
+    accountTrigger = undefined;
+    closeAccount();
+    restoreFocus(deploymentOpener);
+    deploymentOpener.click();
+  });
   accountDialog.addEventListener('close', () => {
     if (accountDialog.open) return;
     restoreFocus(accountTrigger);
@@ -121,11 +130,12 @@ export function createBrowserWallet({ $, browser, onChange }) {
     $('#wallet-account-network').textContent = network || 'Unknown network';
     $('#wallet-account-address').textContent = account;
     $('#wallet-account-status').textContent = '';
+    accountDeployment.hidden = !readOnly;
     $('#wallet-account-description').textContent = !readOnly
       ? 'Use this account to manage your plan in the testnet workspace.'
       : alreadyDemo
-        ? 'Wallet connected in read-only mode. The demo uses sample funds.'
-        : 'Wallet connected in read-only mode. Open a verified testnet workspace to save a plan.';
+        ? 'Your wallet is connected for viewing. The demo still uses sample funds. Open a testnet workspace to save a plan.'
+        : 'Your wallet is connected for viewing. Open a testnet workspace to save a plan.';
     accountDialog.showModal();
     $('#wallet-account-title').focus({ preventScroll: true });
   }

@@ -70,6 +70,13 @@ test('intentionally inactive plans do not request unnecessary token approval',()
   const report=assessAutomationHealth(base({account,activeBuckets:0,allowance:0n}));
   assert.equal(report.status,'inactive');assert.ok(!ids(report).includes('allowance'));
 });
+test('a new wallet with no token balance can receive its first payment when no reserve is set',()=>{
+  const plan={account,activeBuckets:1,ruleVersion:1n,mirroredVersion:1n,subscribed:true,allowance:1000n,userBudget:5n,tokenBalance:0n};
+  assert.equal(assessAutomationHealth(base({...plan,policy:{reserve:0n}})).status,'ready');
+  const withReserve=assessAutomationHealth(base({...plan,policy:{reserve:100n}}));
+  assert.equal(withReserve.status,'attention');
+  assert.ok(ids(withReserve).includes('reserve'));
+});
 test('a completed one-shot observer is not mistaken for an exhausted payment service',async()=>{
   const fake=fakeReaders({values:{remaining:0n}});
   const report=await collectAutomationHealth({...config,mode:'observer',expectedOwner:account},{makeReader:fake.makeReader});

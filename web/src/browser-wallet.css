@@ -6,6 +6,8 @@
 .wallet-chip { justify-self: start; }
 .wallet-chip #wallet-label { min-width: 0; }
 
+.workspace-stages { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+
 .wallet-dialog .import-head p {
   font-size: 14px;
   line-height: 1.45;
@@ -63,9 +65,15 @@
   gap: 8px 12px;
 }
 
+@media (max-width: 600px) {
+  .workspace-stages { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
 @media (max-width: 480px) {
   .wallet-chip {
     max-width: 100%;
     flex-wrap: wrap;
   }
+
+  #wallet-account-open-deployment { width: 100%; }
 }

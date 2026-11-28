@@ -188,6 +188,7 @@
             <button id="workspace-next-action" class="btn btn-primary" type="button" hidden></button>
           </div>
           <dl id="workspace-stages" class="workspace-stages" hidden>
+            <div><dt>Wallet</dt><dd id="workspace-wallet"></dd></div>
             <div><dt>Destinations</dt><dd id="workspace-plan"></dd></div>
             <div><dt>Spending permission</dt><dd id="workspace-allowance"></dd></div>
             <div><dt>Automation</dt><dd id="workspace-health"></dd></div>
@@ -219,7 +220,7 @@
             </li>
             <li>
               <h3>Enable on testnet</h3>
-              <p>Open a testnet deployment, connect a test wallet and save the plan. Set a spending limit and check automation before claiming income.</p>
+              <p>Open a verified testnet workspace, connect a test wallet and save the plan. Set a spending limit, then use Check now in Automation health before receiving test income.</p>
               <a href="#open-deployment">Find testnet setup ↗</a>
             </li>
           </ol>
@@ -697,9 +698,9 @@
         <section class="walkthrough-panel" data-walkthrough-panel="testnet" aria-labelledby="walkthrough-testnet-title" hidden>
           <h3 id="walkthrough-testnet-title" tabindex="-1">Set up a testnet plan</h3>
           <ol class="walkthrough-steps">
-            <li><strong>Open a verified testnet workspace</strong><p>Use a configured deployment and connect the wallet that will receive test income.</p></li>
+            <li><strong>Open a testnet workspace</strong><p>Upload or paste a deployment JSON. Connect a test wallet after the workspace verifies the contracts.</p></li>
             <li><strong>Save your destinations</strong><p>Review the split and approve a spending limit for the saved plan.</p></li>
-            <li><strong>Verify automation</strong><p>Check automation health before claiming or sending a test payment. Follow the payout in Income trace.</p></li>
+            <li><strong>Verify automation</strong><p>Select Check now in Automation health. When the plan is ready, receive test income and follow the payout in Income trace.</p></li>
           </ol>
           <div class="walkthrough-actions">
             <button class="btn btn-small btn-ghost" type="button" data-walkthrough-view="start">Back</button>
@@ -747,6 +748,7 @@
         <div class="import-actions">
           <button class="btn btn-small btn-ghost" id="wallet-account-close" type="button">Close</button>
           <button class="btn btn-small btn-outline" id="wallet-account-disconnect" type="button">Disconnect</button>
+          <button class="btn btn-small btn-primary" id="wallet-account-open-deployment" type="button" aria-haspopup="dialog" aria-controls="deployment-dialog" hidden>Open testnet workspace</button>
         </div>
       </div>
     </dialog>
@@ -754,7 +756,7 @@
     <dialog id="deployment-dialog" class="import-dialog manual-dialog" aria-labelledby="deployment-dialog-title">
       <form class="import-form" id="deployment-form">
         <header class="import-head">
-          <h3 id="deployment-dialog-title">Open a testnet workspace</h3>
+          <h3 id="deployment-dialog-title" tabindex="-1" autofocus>Open a testnet workspace</h3>
           <p>Use a deployment JSON from a source you trust. Contract checks run before the workspace opens. The file stays in this browser tab.</p>
         </header>
         <label for="deployment-file">Deployment file</label>

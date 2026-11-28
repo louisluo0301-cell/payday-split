@@ -126,14 +126,16 @@ try {
 } catch {
   // Static file is optional; the page still renders in "not deployed" mode.
 }
-if (!useLocal && !demoMode && params.get("deployment") === "session") {
+const openingSessionDeployment = !useLocal && !demoMode && params.get("deployment") === "session";
+if (openingSessionDeployment) {
   try {
     deployment = parseTestnetDeployment(sessionStorage.getItem(DEPLOYMENT_SESSION));
     usingSessionDeployment = true;
   } catch {
-    // The workspace can still open its bundled configuration.
+    deployment = { ...deployment, token: '', split: '', reactive: '', assets: [] };
   }
 }
+const sessionDeploymentMissing = openingSessionDeployment && !usingSessionDeployment;
 
 const assetProfile = selectDeploymentAsset(deployment, demoMode ? null : params.get("asset"));
 deployment = assetProfile.deployment;
@@ -352,18 +354,20 @@ function jumpTo(selector) {
 }
 
 function renderWorkspace() {
-  const reportedVersion = lastHealth?.snapshot?.ruleVersion;
-  const reportedAllowance = lastHealth?.snapshot?.allowance;
-  const matchesSavedPlan = (reportedVersion === undefined || reportedVersion === BigInt(state.ruleVersion))
-    && (reportedAllowance === undefined || reportedAllowance === state.allowance);
-  const report = state.syncStatus === 'ready' && matchesSavedPlan ? lastHealth : null;
   const connected = !!state.signer;
+  const synced = connected && state.syncStatus === 'ready';
+  const snapshot = lastHealth?.snapshot;
+  const accountChecks = lastHealth?.scope === 'saved-plan' && snapshot?.account === state.account;
+  const matchesSavedPlan = (snapshot?.ruleVersion === undefined || snapshot.ruleVersion === BigInt(state.ruleVersion))
+    && (snapshot?.allowance === undefined || snapshot.allowance === state.allowance);
+  const report = synced && accountChecks && matchesSavedPlan ? lastHealth : null;
+  const modeDirty = state.draftAllocationMode !== state.allocationMode;
   const next = workspaceJourney({
-    demo: state.demoMode, configured, invalidAsset: assetProfile.invalid, hasWallet: browserWallet.hasWallet(),
+    demo: state.demoMode, configured, sessionDeploymentMissing, invalidAsset: assetProfile.invalid, hasWallet: browserWallet.hasWallet(),
     walletLinked: Boolean(walletSession),
     syncStatus: state.syncStatus,
     connected, connecting, savedActive: state.savedActive, dirty: state.dirty, policyDirty,
-    modeDirty: state.draftAllocationMode !== state.allocationMode, allowance: state.allowance,
+    modeDirty, allowance: state.allowance,
     report, symbol: state.symbol, network: networkName(), nativeReceiver: wrappedAsset && !!deployment.modules.factory,
     demoToken: state.demoToken, faucetReady: !$("#faucet-btn").disabled,
   });
@@ -377,15 +381,21 @@ function renderWorkspace() {
   action.dataset.action = next.action ?? '';
   setText('workspace-next-action', next.label ?? '');
   const demoLink = $('#workspace-demo-link');
-  demoLink.hidden = state.demoMode || (configured && next.action !== 'demo') || assetProfile.invalid;
+  demoLink.hidden = state.demoMode || (configured && next.action !== 'demo') || (assetProfile.invalid && !sessionDeploymentMissing);
   demoLink.classList.toggle('btn-primary', next.action === 'demo');
   demoLink.classList.toggle('btn-outline', next.action !== 'demo');
-  $('#workspace-stages').hidden = !connected;
-  setText('workspace-plan', state.dirty ? 'Unsaved changes' : state.savedActive === null ? 'Checking'
-    : state.savedActive ? state.savedActive + ' active · v' + state.ruleVersion : 'No active destinations');
-  setText('workspace-allowance', state.savedActive === null ? 'Checking'
-    : state.allowance === 0n ? 'Required' : state.allowance === MaxUint256 ? 'Unlimited' : 'Set');
-  setText('workspace-health', { ready: 'Verified', blocked: 'Blocked', attention: 'Needs attention', inactive: 'Inactive' }[report?.status] ?? 'Check needed');
+  $('#workspace-stages').hidden = state.demoMode || !configured;
+  setText('workspace-wallet', connected ? 'Connected' : connecting ? 'Connecting…' : 'Required');
+  setText('workspace-plan', !connected ? 'After connection' : state.dirty ? 'Unsaved draft'
+    : state.syncStatus === 'unavailable' ? 'Refresh needed' : !synced ? 'Reading plan…'
+      : state.savedActive ? state.savedActive + ' active · v' + state.ruleVersion
+        : state.onchainBucketCount > 0 ? 'Inactive · v' + state.ruleVersion : 'Not set');
+  setText('workspace-allowance', !synced ? 'After plan check'
+    : state.allowance > 0n ? state.allowance === MaxUint256 ? 'Unlimited' : 'Set' : 'Required');
+  const healthStatus = { ready: 'Verified', blocked: 'Blocked', attention: 'Needs attention', inactive: 'Inactive' };
+  setText('workspace-health', !synced || !state.savedActive ? 'After plan setup'
+    : state.dirty || modeDirty || policyDirty ? 'Check after saving'
+      : healthStatus[report?.status] ?? 'Check needed');
   const paymentPending = connected && manualPayment.hasPending();
   setText('run-now', paymentPending ? 'Check manual payment' : 'Review new payment');
   $('#run-now').disabled = !state.demoMode && !paymentPending
@@ -408,6 +418,10 @@ async function runWorkspaceAction() {
       jumpTo('#spending-controls summary');
       break;
     case 'health': jumpTo('#health-refresh'); break;
+    case 'check-health':
+      jumpTo('#health-refresh');
+      $('#health-refresh').click();
+      break;
     case 'native':
       $('#native-receiver').open = true;
       jumpTo('#native-receiver summary');
@@ -2322,6 +2336,7 @@ function wire() {
   }
   $('#connect-hero').addEventListener('click', event => {
     if (state.demoMode) jumpTo('#dashboard');
+    else if (sessionDeploymentMissing) $('#open-deployment').click();
     else if (assetProfile.invalid) jumpTo('#asset-select');
     else if (!configured) location.assign($('#workspace-demo-link').href);
     else void connect(event.currentTarget);
@@ -2584,6 +2599,12 @@ function boot() {
     setText('network-label', 'Demo available · testnet setup optional');
     $('#hero-demo').href = '#proof';
     setText('hero-demo', 'View testnet proof');
+  }
+  if (sessionDeploymentMissing) {
+    setText('connect-hero', 'Open testnet workspace');
+    setText('network-label', 'Testnet configuration required');
+  } else if (usingSessionDeployment) {
+    setText('network-label', 'Verified deployment · ' + networkName());
   }
 
   if (state.demoMode) {
