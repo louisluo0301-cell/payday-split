@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 import { setTimeout as wait } from 'node:timers/promises';
-import { AbiCoder, Interface, keccak256 } from 'ethers';
+import { AbiCoder, Interface, ZeroAddress, keccak256 } from 'ethers';
 import { Window } from 'happy-dom';
-import { groupWaterfallEvents, incomeKeys, incomeTransfers, matchedPayout } from '../src/income-evidence.js';
+import { claimedIncome, groupWaterfallEvents, incomeKeys, incomeTransfers, matchedPayout } from '../src/income-evidence.js';
 import { createIncomeTrace } from '../src/income-trace.js';
 
 const address = n => '0x' + String(n).padStart(40, '0');
@@ -41,6 +41,36 @@ test('income receipt scopes transfers to the wallet and token and uses the exact
   assert.notEqual(incomeKeys(account, token, transfers[0]).reactive, keys.reactive);
   assert.throws(() => incomeTransfers({ ...receipt, status: 0 }, sourceHash, account, token), /did not succeed/);
   assert.throws(() => incomeTransfers(receipt, callbackHash, account, token), /does not match/);
+});
+
+test('test income claims identify the direct faucet mint instead of unrelated transfers', () => {
+  const amount = 1_000_000_000n;
+  const claim = { ...receipt, from: account, to: token, logs: [
+    log(4, { amount }),
+    log(6, { from: ZeroAddress, amount, emitter: other }),
+    log(7, { from: ZeroAddress, amount }),
+  ] };
+  const expectedHash = '0x' + sourceHash.slice(2).toUpperCase();
+  const income = claimedIncome(claim, expectedHash, account, token, amount);
+  assert.equal(income.hash, sourceHash);
+  assert.equal(income.logIndex, 7);
+  assert.equal(income.amount, amount);
+  assert.equal(income.from, ZeroAddress);
+});
+
+test('test income cannot be confirmed from a pending, reverted, unrelated or ambiguous claim receipt', () => {
+  const amount = 1_000_000_000n;
+  const mint = log(4, { from: ZeroAddress, amount });
+  const claim = { ...receipt, from: account, to: token, logs: [mint] };
+  const expectClaim = (result, hash = sourceHash) => claimedIncome(result, hash, account, token, amount);
+  assert.throws(() => expectClaim(null), /receipt is unavailable/);
+  assert.throws(() => expectClaim({ ...claim, status: 0 }), /did not succeed/);
+  assert.throws(() => expectClaim(claim, callbackHash), /does not match/);
+  assert.throws(() => expectClaim({ ...claim, from: other }), /not a direct test income claim/);
+  assert.throws(() => expectClaim({ ...claim, to: other }), /not a direct test income claim/);
+  assert.throws(() => expectClaim({ ...claim, logs: [log(4, { amount })] }), /exactly one mint/);
+  assert.throws(() => expectClaim({ ...claim, logs: [log(4, { from: ZeroAddress, amount: amount - 1n })] }), /expected amount/);
+  assert.throws(() => expectClaim({ ...claim, logs: [mint, log(5, { from: ZeroAddress, amount })] }), /exactly one mint/);
 });
 
 test('two incomes in one callback transaction stay separate, including a retained-only run', () => {

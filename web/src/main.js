@@ -15,7 +15,7 @@ import { createBudgetControls } from "./budget-controls.js";
 import { collectAutomationHealth, demoHealthReport } from "./automation-health.js";
 import { createHealthPanel } from "./health-panel.js";
 import { createIncomeTrace } from "./income-trace.js";
-import { groupWaterfallEvents, incomeTransfers, matchedPayout, recoveryQuote } from "./income-evidence.js";
+import { claimedIncome, groupWaterfallEvents, incomeKeys, incomeTransfers, matchedPayout, recoveryQuote } from "./income-evidence.js";
 import { createIncomeModules, SAMPLE_SAVINGS_DESTINATION } from "./income-modules.js";
 import { wireCctpCollection } from "./cctp-collection.js";
 import { selectDeploymentAsset } from "./deployment-assets.js";
@@ -370,6 +370,7 @@ function renderWorkspace() {
     modeDirty, allowance: state.allowance,
     report, symbol: state.symbol, network: networkName(), nativeReceiver: wrappedAsset && !!deployment.modules.factory,
     demoToken: state.demoToken, faucetReady: !$("#faucet-btn").disabled,
+    testIncomePending: state.latestIncome?.phase === 'submitted',
   });
   const panel = $('.workspace-next');
   panel.dataset.tone = next.tone;
@@ -430,6 +431,7 @@ async function runWorkspaceAction() {
       if (runDemoIncome()) jumpTo('#activity-heading');
       break;
     case 'faucet': await claim(); break;
+    case 'claim-status': jumpTo('#faucet-progress'); break;
     case 'receive':
       if (!state.signer || !state.account) break;
       try {
@@ -765,8 +767,7 @@ function disconnect() {
   state.faucetAmount = 0n;
   state.nextFaucetAt = 0;
   state.latestIncome = null;
-  setText("faucet-progress", "");
-  $("#faucet-trace").hidden = true;
+  renderFaucetClaim();
   state.buckets = clonePreset("freelancer");
   state.ruleVersion = 0;
   state.allocationMode = 0;
@@ -831,6 +832,7 @@ async function refreshAll({ afterBlock } = {}) {
     Object.assign(state, { demoToken: Boolean(faucet), faucetAmount: faucet?.amount ?? 0n, nextFaucetAt: faucet?.next ?? 0,
       syncStatus: "ready" });
     lastHealth = null;
+    resumeFaucetClaim();
     renderConnected();
     loadReactiveStatus();
     await Promise.all([loadActivity({ head: snapshot.at.blockTag }), planner.load(snapshot.at)]);
@@ -1334,6 +1336,12 @@ function renderFaucet() {
   if (!state.demoToken) {
     btn.disabled = true;
     btn.textContent = "—";
+    return;
+  }
+  const phase = state.latestIncome?.phase;
+  if (phase === 'signing' || phase === 'submitted') {
+    btn.disabled = true;
+    btn.textContent = phase === 'signing' ? 'In wallet…' : 'Submitted';
     return;
   }
 
@@ -2190,52 +2198,196 @@ async function submitManualPayment({ ctx, amount, quote }, isCurrent, onSigning)
   }
 }
 
+const claimHashPattern = /^0x[0-9a-f]{64}$/i;
+
+function claimContext() {
+  return {
+    account: state.account, signer: state.signer, provider: state.provider, split: state.split,
+    amount: state.faucetAmount, decimals: state.decimals, symbol: state.symbol,
+  };
+}
+
+function claimStorageKey({ account }) {
+  return ['paydaysplit.test-income', chainId, deployment.token, account].join(':').toLowerCase();
+}
+
+function saveFaucetTracker(tracked, clear = false) {
+  try {
+    const key = claimStorageKey(tracked);
+    if (clear) sessionStorage.removeItem(key);
+    else sessionStorage.setItem(key, JSON.stringify({
+      hash: tracked.hash, startBlock: tracked.startBlock, amount: String(tracked.amount),
+    }));
+  } catch { /* Storage can be disabled. The active tab still tracks this claim. */ }
+}
+
+function resumeFaucetClaim() {
+  if (!state.demoToken || !state.signer || state.latestIncome) return;
+  const ctx = claimContext();
+  let saved;
+  try { saved = JSON.parse(sessionStorage.getItem(claimStorageKey(ctx))); }
+  catch { return; }
+  if (!saved || !claimHashPattern.test(saved.hash) || !Number.isSafeInteger(saved.startBlock) || saved.startBlock < 0
+      || typeof saved.amount !== 'string' || !/^[1-9]\d{0,28}$/.test(saved.amount)) return;
+  const tracked = { ...ctx, hash: saved.hash, startBlock: saved.startBlock, amount: BigInt(saved.amount), phase: 'submitted' };
+  state.latestIncome = tracked;
+  void checkFaucetConfirmation(tracked);
+}
+
+function isCurrentFaucetClaim(tracked) {
+  return state.latestIncome === tracked && state.signer === tracked.signer;
+}
+
+function renderFaucetClaim() {
+  const tracked = state.latestIncome;
+  const progress = $('#faucet-progress');
+  const phase = tracked?.phase ?? '';
+  const messages = {
+    signing: 'Confirm the test income in your wallet.',
+    submitted: tracked?.checking ? 'Test income submitted. Checking the source transaction…'
+      : 'Test income submitted. Use Check confirmation to look for its receipt.',
+    origin: tracked?.income ? `Income confirmed for ${formatUnits(tracked.income.amount, tracked.decimals)} ${tracked.symbol}. Waiting for the destination result.` : '',
+    slow: 'Income confirmed. The destination result is still unverified.',
+    rejected: tracked?.message,
+    replaced: 'The wallet replaced or cancelled this claim.',
+    reverted: 'The source transaction reverted.',
+    unverified: 'The transaction confirmed, but the expected test-income transfer could not be verified.',
+    confirmed: tracked?.message,
+  };
+  progress.dataset.phase = phase;
+  progress.dataset.tone = phase === 'confirmed' ? 'success'
+    : ['rejected', 'replaced', 'reverted', 'unverified', 'slow'].includes(phase) ? 'warning' : '';
+  setText('faucet-progress', messages[phase] || '');
+  const href = tracked?.hash ? txUrl(tracked.hash) : '';
+  const source = $('#faucet-source');
+  source.hidden = !href;
+  if (href) source.href = href;
+  else source.removeAttribute('href');
+  $('#faucet-hash').hidden = Boolean(href) || !tracked?.hash;
+  setText('faucet-hash', !href ? tracked?.hash || '' : '');
+  $('#faucet-trace').hidden = !tracked?.income;
+  $('#faucet-check').hidden = !['submitted', 'slow'].includes(phase) || Boolean(tracked?.checking || tracked?.following);
+  renderFaucet();
+  renderWorkspace();
+}
+
 async function claim() {
   if (state.demoMode) {
     runDemoIncome();
     return;
   }
-  if (!state.signer || state.busy || !state.demoToken || state.syncStatus !== "ready") return;
+  if (!state.signer || state.busy || !state.demoToken || state.syncStatus !== "ready" || $('#faucet-btn').disabled) return;
+  const { token, injected } = state;
+  const tracked = { ...claimContext(), phase: 'signing' };
+  state.latestIncome = tracked;
   state.busy = true;
-  const button = $("#faucet-btn");
-  const { account, signer, token } = state;
-  setBusy(button, "Claiming…", true);
-
+  renderFaucetClaim();
   try {
-    const tx = await token.connect(signer).faucet();
-    toast("Test income submitted. Waiting for confirmation…", false, tx.hash);
-    const receipt = await tx.wait();
-    if (signer !== state.signer) return;
-    const [income] = incomeTransfers(receipt, receipt.hash.toLowerCase(), account, deployment.token);
-    const tracked = { signer, income };
-    state.latestIncome = tracked;
-    $("#faucet-trace").hidden = false;
-    setText("faucet-progress", "Income confirmed. Waiting for Reactive to deliver the callback.");
-    await refreshAll({ afterBlock: receipt.blockNumber });
-    void followIncome(tracked);
+    const request = await token.faucet.populateTransaction();
+    tracked.startBlock = await tracked.provider.getBlockNumber();
+    await verifyWalletContext(injected, chainId, tracked.account);
+    if (!isCurrentFaucetClaim(tracked)) return;
+    const hash = await tracked.signer.sendUncheckedTransaction(request);
+    if (!claimHashPattern.test(hash)) throw new Error('The wallet did not return a valid transaction hash.');
+    Object.assign(tracked, { hash, phase: 'submitted' });
+    saveFaucetTracker(tracked);
   } catch (err) {
-    if (signer === state.signer) toast(humanError(err), true);
+    if (isCurrentFaucetClaim(tracked)) {
+      const rejected = err.code === 'ACTION_REJECTED' || Number(err.code) === 4001;
+      Object.assign(tracked, { phase: 'rejected', message: rejected ? 'The test-income request was declined in your wallet.' : humanError(err) });
+    }
   } finally {
     state.busy = false;
-    setBusy(button, "", false);
-    if (signer === state.signer) { renderFaucet(); renderWorkspace(); }
+    if (isCurrentFaucetClaim(tracked)) {
+      if (tracked.phase === 'submitted') void checkFaucetConfirmation(tracked);
+      else renderFaucetClaim();
+    }
   }
 }
 
-async function followIncome(tracked) {
-  const isCurrent = () => state.latestIncome === tracked && state.signer === tracked.signer;
-  for (let check = 0; check < 10 && isCurrent(); check++) {
-    const groups = await loadActivity({ publish: false });
-    if (!isCurrent()) return;
-    const payout = matchedPayout(groups, tracked.income);
-    if (payout) {
-      setText("faucet-progress", `Callback confirmed. ${formatUnits(payout.totalRouted, state.decimals)} ${state.symbol} routed.`);
-      await refreshAll({ afterBlock: payout.blockNumber });
+async function checkFaucetConfirmation(tracked, timeout = 12_000) {
+  if (!isCurrentFaucetClaim(tracked) || tracked.phase !== 'submitted' || tracked.checking) return;
+  tracked.checking = true;
+  renderFaucetClaim();
+  try {
+    const { provider } = tracked;
+    const hash = tracked.hash;
+    let receipt = await provider.getTransactionReceipt(hash);
+    let expectedHash = hash;
+    let replaced = false;
+    if (!receipt) {
+      try {
+        const tx = await provider.getTransaction(hash);
+        receipt = tx ? await tx.replaceableTransaction(tracked.startBlock).wait(1, timeout)
+          : await provider.waitForTransaction(hash, 1, timeout);
+      } catch (error) {
+        receipt = error.receipt;
+        if (error.code === 'TRANSACTION_REPLACED' && claimHashPattern.test(error.hash)) {
+          expectedHash = error.hash;
+          replaced = error.cancelled !== false || error.reason !== 'repriced';
+        }
+      }
+    }
+    if (!isCurrentFaucetClaim(tracked) || receipt?.hash?.toLowerCase() !== expectedHash.toLowerCase()
+        || ![0, 1].includes(receipt.status)) return;
+    tracked.hash = expectedHash;
+    if (replaced || receipt.status === 0) {
+      tracked.phase = replaced ? 'replaced' : 'reverted';
+      saveFaucetTracker(tracked, true);
+      await refreshAll({ afterBlock: receipt.blockNumber });
       return;
     }
-    await sleep(3000);
+    try {
+      tracked.income = claimedIncome(receipt, expectedHash, tracked.account, deployment.token, tracked.amount);
+      tracked.phase = 'origin';
+      saveFaucetTracker(tracked);
+    } catch {
+      tracked.phase = 'unverified';
+      saveFaucetTracker(tracked, true);
+    }
+    const refresh = refreshAll({ afterBlock: receipt.blockNumber });
+    renderFaucetClaim();
+    await refresh;
+    if (isCurrentFaucetClaim(tracked) && tracked.income) void followIncome(tracked);
+  } catch {
+    // Keep the submitted hash available through temporary RPC failures.
+  } finally {
+    tracked.checking = false;
+    if (isCurrentFaucetClaim(tracked)) renderFaucetClaim();
   }
-  if (isCurrent()) setText("faucet-progress", "The payout is still unconfirmed. Use Income trace to check its source and callback.");
+}
+
+async function followIncome(tracked, attempts = 10) {
+  if (!isCurrentFaucetClaim(tracked) || tracked.following || !tracked.income) return;
+  tracked.following = true;
+  renderFaucetClaim();
+  const destinationKey = incomeKeys(tracked.account, deployment.token, tracked.income).destination;
+  try {
+    for (let check = 0; check < attempts && isCurrentFaucetClaim(tracked); check++) {
+      const groups = await loadActivity({ publish: false });
+      if (!isCurrentFaucetClaim(tracked)) return;
+      const payout = matchedPayout(groups, tracked.income);
+      const processed = payout && await tracked.split.processed(destinationKey, { blockTag: payout.blockNumber }).catch(() => false);
+      if (!isCurrentFaucetClaim(tracked)) return;
+      if (processed) {
+        const routed = formatUnits(payout.totalRouted, tracked.decimals);
+        const retained = formatUnits(payout.retained, tracked.decimals);
+        Object.assign(tracked, {
+          phase: 'confirmed', message: `Destination confirmed. ${routed} ${tracked.symbol} routed · ${retained} ${tracked.symbol} retained.`,
+        });
+        renderFaucetClaim();
+        await refreshAll({ afterBlock: payout.blockNumber });
+        return;
+      }
+      if (check + 1 < attempts) await sleep(3000);
+    }
+  } finally {
+    tracked.following = false;
+    if (isCurrentFaucetClaim(tracked)) {
+      if (tracked.phase !== 'confirmed') tracked.phase = 'slow';
+      renderFaucetClaim();
+    }
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -2366,6 +2518,12 @@ function wire() {
   $("#rule-form").addEventListener("submit", saveRule);
   $("#approve-btn").addEventListener("click", approve);
   $("#faucet-btn").addEventListener("click", claim);
+  $('#faucet-check').addEventListener('click', () => {
+    const tracked = state.latestIncome;
+    if (!tracked) return;
+    if (tracked.phase === 'submitted') void checkFaucetConfirmation(tracked, 4_000);
+    if (tracked.phase === 'slow') void followIncome(tracked, 1);
+  });
   $("#faucet-trace").addEventListener("click", () => {
     const tracked = state.latestIncome;
     if (tracked && tracked.signer === state.signer) incomeTrace.open(tracked.income.hash, tracked.income.logIndex);

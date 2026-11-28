@@ -23,6 +23,7 @@ test('the workspace directs users through wallet, destinations and allowance bef
   assert.equal(next({ modeDirty: true, report: checked }).action, 'budget');
   assert.equal(next({ allowance: 0n, report: checked }).action, 'allowance');
   assert.equal(next({ report: checked }).action, 'receive');
+  assert.equal(next({ report: checked, demoToken: true, faucetReady: true, testIncomePending: true }).action, 'claim-status');
 });
 
 test('the receive action requires verifiable automation readiness', () => {

@@ -1,0 +1,49 @@
+#faucet-feedback {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--paper);
+}
+
+#faucet-feedback:has(#faucet-progress:empty):not(:has(:is(a, button, code):not([hidden]))) {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+#faucet-feedback:has(#faucet-progress[data-tone="success"]) { background: var(--green-soft); }
+#faucet-feedback:has(#faucet-progress[data-tone="warning"]) { background: var(--amber-soft); }
+
+#faucet-progress {
+  margin: 0;
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+#faucet-hash {
+  color: var(--ink-soft);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.faucet-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.faucet-actions:not(:has(> :not([hidden]))) { display: none; }
+
+#faucet-feedback .btn {
+  min-height: 36px;
+  margin: 0;
+}

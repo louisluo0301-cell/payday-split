@@ -14,6 +14,43 @@
     <meta name="twitter:description" content="Set it once; every payment pays what matters first." />
     <meta name="twitter:image" content="/demo-poster.png" />
     <title>PaydaySplit — Stablecoin income routing</title>
+    <script>
+      if (location.protocol === "file:") document.documentElement.dataset.localFile = "true";
+    </script>
+    <style>
+      #local-preview-fallback { display: none; }
+      html[data-local-file] body > :not(#local-preview-fallback) { display: none; }
+      html[data-local-file] body {
+        display: grid;
+        place-items: center;
+        min-height: 100vh;
+        box-sizing: border-box;
+        margin: 0;
+        padding: 24px;
+        background: #f6f1e6;
+        color: #18271e;
+        font: 16px/1.55 system-ui, sans-serif;
+      }
+      html[data-local-file] #local-preview-fallback {
+        display: block;
+        box-sizing: border-box;
+        width: min(100%, 34rem);
+        padding: clamp(24px, 6vw, 40px);
+        border: 1px solid #c9d4ca;
+        border-radius: 20px;
+        background: #fffdf7;
+      }
+      #local-preview-fallback h1 { margin: 0; font-size: clamp(1.5rem, 6vw, 2rem); line-height: 1.15; }
+      #local-preview-fallback a {
+        display: inline-block;
+        padding: 10px 16px;
+        border-radius: 999px;
+        color: #fff;
+        background: #1a6543;
+        font-weight: 650;
+      }
+      #local-preview-fallback a:focus-visible { outline: 2px solid #1a6543; outline-offset: 3px; }
+    </style>
     <link rel="icon" type="image/svg+xml" href="/logo.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -27,8 +64,14 @@
     <link rel="stylesheet" href="/src/walkthrough.css" />
     <link rel="stylesheet" href="/src/action-review.css" />
     <link rel="stylesheet" href="/src/browser-wallet.css" />
+    <link rel="stylesheet" href="/src/faucet-status.css" />
   </head>
   <body>
+    <section id="local-preview-fallback" aria-labelledby="local-preview-title">
+      <h1 id="local-preview-title">Open PaydaySplit in your browser</h1>
+      <p>The local preview loads the app so you can try a sample income or connect a wallet.</p>
+      <a href="http://127.0.0.1:5173/?demo=1">Open local preview</a>
+    </section>
     <div class="grain" aria-hidden="true"></div>
     <a class="skip-link" href="#dashboard">Skip to workspace</a>
 
@@ -322,12 +365,19 @@
 
               <div class="action-step" id="step-paycheck">
                 <div class="step-body">
-                  <b id="faucet-title">Claim a demo income</b>
+                  <b id="faucet-title">Receive income</b>
                   <span id="faucet-note">Connect your wallet to see how to receive this asset.</span>
-                  <span id="faucet-progress" class="income-progress" role="status"></span>
-                  <button id="faucet-trace" class="link-btn" type="button" hidden>Trace this income</button>
                 </div>
-                <button class="btn btn-small btn-ink" id="faucet-btn" type="button" disabled>Claim</button>
+                <button class="btn btn-small btn-ink" id="faucet-btn" type="button" aria-describedby="faucet-note" disabled hidden>Claim</button>
+                <div id="faucet-feedback">
+                  <p id="faucet-progress" role="status" aria-atomic="true" tabindex="-1"></p>
+                  <code id="faucet-hash" aria-label="Source transaction hash" hidden></code>
+                  <div class="faucet-actions">
+                    <a id="faucet-source" class="btn btn-small btn-outline" target="_blank" rel="noreferrer" hidden>View source transaction</a>
+                    <button id="faucet-check" class="btn btn-small btn-outline" type="button" hidden>Check confirmation</button>
+                    <button id="faucet-trace" class="btn btn-small btn-outline" type="button" hidden>Trace this income</button>
+                  </div>
+                </div>
               </div>
 
               <div class="action-step">

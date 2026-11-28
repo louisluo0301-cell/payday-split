@@ -1,7 +1,8 @@
 const spendingAlerts = new Set(['plan-paused', 'expired', 'daily-limit']);
 
 export function workspaceJourney({ demo, configured, sessionDeploymentMissing, invalidAsset, hasWallet, connected, connecting, walletLinked,
-  savedActive, dirty, policyDirty, modeDirty, allowance, report, symbol, network, nativeReceiver, demoToken, faucetReady, syncStatus }) {
+  savedActive, dirty, policyDirty, modeDirty, allowance, report, symbol, network, nativeReceiver, demoToken, faucetReady, syncStatus,
+  testIncomePending }) {
   const scope = demo ? 'Interactive demo' : configured ? network + ' · ' + symbol : 'Workspace setup';
   const next = (tone, title, note, action, label) => ({ scope, tone, title, note, action, label });
   if (demo) return next('demo', 'Try a sample income',
@@ -24,6 +25,8 @@ export function workspaceJourney({ demo, configured, sessionDeploymentMissing, i
     'Checking balance, allowance and saved settings from the same block.');
   if (syncStatus === 'unavailable') return next('warning', 'Refresh your onchain plan',
     'The latest wallet data is unavailable. Check your connection before making changes.', 'refresh', 'Refresh plan');
+  if (testIncomePending) return next('neutral', 'Test income submitted',
+    'Track the source transaction while your claim is pending.', 'claim-status', 'View claim status');
   if (dirty) return next('warning', 'Save your destination changes',
     'The last saved destinations still apply onchain. Review your draft before saving.', 'plan', 'Review destinations');
   if (savedActive === null) return next('neutral', 'Read your saved plan',
