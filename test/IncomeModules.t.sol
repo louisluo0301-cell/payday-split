@@ -200,6 +200,51 @@ contract IncomeModulesTest is Test {
         assertEq(token.balanceOf(FIRST), 0);
     }
 
+    function test_cancelledRetryDoesNotUseCallbackWorkSlot() public {
+        _rules(FIRST, 200e6, SECOND, 300e6);
+        vm.prank(ALICE);
+        split.setRetryEnabled(address(token), true);
+        _income(71);
+        _income(72);
+        assertEq(queue.retryQueueLength(), 4);
+
+        vm.prank(ALICE);
+        split.cancelRetry(2);
+        assertEq(queue.retryQueueLength(), 3);
+        assertEq(queue.retryPending(ALICE, address(token)), 3);
+
+        _approve(1000e6);
+        vm.warp(queue.retryJob(1).due);
+        bytes memory payload = abi.encodeCall(PaydaySplit.executeRetries, (address(0)));
+        (bool ok,) =
+            proxy.deliver{ gas: reactive.RETRY_CALLBACK_GAS_LIMIT() }(address(split), address(reactive), payload);
+        assertTrue(ok);
+        assertEq(token.balanceOf(FIRST), 400e6);
+        assertEq(token.balanceOf(SECOND), 300e6);
+        assertEq(queue.retryQueueLength(), 0);
+        assertEq(queue.retryPending(ALICE, address(token)), 0);
+    }
+
+    function test_cancelledRetryRestoresFullQueueCapacityImmediately() public {
+        uint256 capacity = queue.RETRY_CAPACITY();
+        PaydayRetryQueue.RetryOrigin memory origin =
+            PaydayRetryQueue.RetryOrigin(address(0), address(token), 1, 1, 2, 1000e6);
+        vm.startPrank(address(split));
+        for (uint160 i = 1; i <= capacity; ++i) {
+            origin.user = address(i);
+            assertTrue(queue.enqueue(origin, 0, 0, 0, 100e6));
+        }
+        origin.user = ALICE;
+        assertFalse(queue.enqueue(origin, 0, 0, 0, 100e6));
+        queue.cancel(2, address(2));
+        assertEq(queue.retryQueueLength(), capacity - 1);
+        assertTrue(queue.enqueue(origin, 0, 0, 0, 100e6));
+        assertEq(queue.retryQueueLength(), capacity);
+        assertEq(queue.retryPending(address(2), address(token)), 0);
+        assertEq(queue.retryPending(ALICE, address(token)), 1);
+        vm.stopPrank();
+    }
+
     function test_aavePayoutAutomaticallySuppliesAndSendsPositionToWallet() public {
         AavePoolForModules pool = new AavePoolForModules(token);
         vm.prank(ALICE);

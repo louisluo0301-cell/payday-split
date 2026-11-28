@@ -1,4 +1,4 @@
-import { AbiCoder, Interface, keccak256, toBeHex } from 'ethers';
+import { AbiCoder, Interface, ZeroAddress, keccak256, toBeHex } from 'ethers';
 import { TOKEN_ABI } from './contract-abi.generated.js';
 
 const transfer = new Interface(TOKEN_ABI);
@@ -29,6 +29,18 @@ export function incomeTransfers(receipt, hash, account, token) {
   }
   if (!matches.size) throw new Error('No incoming transfer of the configured token to your wallet was found.');
   return [...matches.values()].sort((a, b) => a.logIndex - b.logIndex);
+}
+
+export function claimedIncome(receipt, expectedHash, account, token, expectedAmount) {
+  const transfers = incomeTransfers(receipt, parseIncomeHash(expectedHash), account, token);
+  if (receipt.from?.toLowerCase() !== account.toLowerCase() || receipt.to?.toLowerCase() !== token.toLowerCase()) {
+    throw new Error('This is not a direct test income claim from your wallet to the selected token.');
+  }
+  const mints = transfers.filter(transfer => transfer.from === ZeroAddress);
+  if (mints.length !== 1 || mints[0].amount !== expectedAmount) {
+    throw new Error('The claim receipt does not contain exactly one mint of the expected amount.');
+  }
+  return mints[0];
 }
 
 export function incomeKeys(account, token, { hash, logIndex }) {

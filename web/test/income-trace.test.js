@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 import { setTimeout as wait } from 'node:timers/promises';
-import { AbiCoder, Interface, keccak256 } from 'ethers';
+import { AbiCoder, Interface, ZeroAddress, keccak256 } from 'ethers';
 import { Window } from 'happy-dom';
-import { groupWaterfallEvents, incomeKeys, incomeTransfers, matchedPayout } from '../src/income-evidence.js';
+import { claimedIncome, groupWaterfallEvents, incomeKeys, incomeTransfers, matchedPayout } from '../src/income-evidence.js';
 import { createIncomeTrace } from '../src/income-trace.js';
 
 const address = n => '0x' + String(n).padStart(40, '0');
@@ -15,6 +15,7 @@ const payee = address(4);
 const other = address(5);
 const sourceHash = '0x' + 'ab'.repeat(32);
 const callbackHash = '0x' + 'bc'.repeat(32);
+const reactionHash = '0x' + 'cd'.repeat(32);
 const transfer = new Interface(['event Transfer(address indexed from,address indexed to,uint256 value)']);
 
 function log(index, { from = payer, to = account, amount = 1_000_000n, emitter = token } = {}) {
@@ -40,6 +41,36 @@ test('income receipt scopes transfers to the wallet and token and uses the exact
   assert.notEqual(incomeKeys(account, token, transfers[0]).reactive, keys.reactive);
   assert.throws(() => incomeTransfers({ ...receipt, status: 0 }, sourceHash, account, token), /did not succeed/);
   assert.throws(() => incomeTransfers(receipt, callbackHash, account, token), /does not match/);
+});
+
+test('test income claims identify the direct faucet mint instead of unrelated transfers', () => {
+  const amount = 1_000_000_000n;
+  const claim = { ...receipt, from: account, to: token, logs: [
+    log(4, { amount }),
+    log(6, { from: ZeroAddress, amount, emitter: other }),
+    log(7, { from: ZeroAddress, amount }),
+  ] };
+  const expectedHash = '0x' + sourceHash.slice(2).toUpperCase();
+  const income = claimedIncome(claim, expectedHash, account, token, amount);
+  assert.equal(income.hash, sourceHash);
+  assert.equal(income.logIndex, 7);
+  assert.equal(income.amount, amount);
+  assert.equal(income.from, ZeroAddress);
+});
+
+test('test income cannot be confirmed from a pending, reverted, unrelated or ambiguous claim receipt', () => {
+  const amount = 1_000_000_000n;
+  const mint = log(4, { from: ZeroAddress, amount });
+  const claim = { ...receipt, from: account, to: token, logs: [mint] };
+  const expectClaim = (result, hash = sourceHash) => claimedIncome(result, hash, account, token, amount);
+  assert.throws(() => expectClaim(null), /receipt is unavailable/);
+  assert.throws(() => expectClaim({ ...claim, status: 0 }), /did not succeed/);
+  assert.throws(() => expectClaim(claim, callbackHash), /does not match/);
+  assert.throws(() => expectClaim({ ...claim, from: other }), /not a direct test income claim/);
+  assert.throws(() => expectClaim({ ...claim, to: other }), /not a direct test income claim/);
+  assert.throws(() => expectClaim({ ...claim, logs: [log(4, { amount })] }), /exactly one mint/);
+  assert.throws(() => expectClaim({ ...claim, logs: [log(4, { from: ZeroAddress, amount: amount - 1n })] }), /expected amount/);
+  assert.throws(() => expectClaim({ ...claim, logs: [mint, log(5, { from: ZeroAddress, amount })] }), /exactly one mint/);
 });
 
 test('two incomes in one callback transaction stay separate, including a retained-only run', () => {
@@ -70,6 +101,9 @@ test('the recovery UI requires an explicit transfer and rechecks processing and 
   const $ = selector => document.querySelector(selector);
   let processed = false;
   let quoteAmount = 10_000_000n;
+  let reaction = null;
+  let groups = [];
+  let retryHistoryUnavailable = false;
   const sent = [];
   const notifications = [];
   const provider = {
@@ -83,10 +117,25 @@ test('the recovery UI requires an explicit transfer and rechecks processing and 
     previewExecution: async (_, __, amount) => [[quoteAmount], amount - quoteAmount, 0n],
     getBuckets: async () => [{ payee }],
   };
-  const ctx = { account, token, chainId: 11155111, decimals: 6, symbol: 'dUSDC', split, provider, txLink: () => '' };
+  const ctx = {
+    account, token, chainId: 11155111, decimals: 6, symbol: 'dUSDC', split, provider,
+    txLink: hash => `https://sepolia.etherscan.io/tx/${hash}`,
+    reactiveTxLink: hash => `https://lasna.reactscan.net/tx/${hash}`,
+  };
   const panel = createIncomeTrace({
-    $, context: () => ctx, readReactive: async () => { throw new Error('unavailable'); },
-    readActivity: async () => [],
+    $, context: () => ctx,
+    readReactive: async () => {
+      if (!reaction) throw new Error('reaction unavailable');
+      return reaction;
+    },
+    readActivity: async () => {
+      if (!groups) throw new Error('payout logs unavailable');
+      return groups;
+    },
+    readRetries: async () => {
+      if (retryHistoryUnavailable) throw new Error('retry logs unavailable');
+      return null;
+    },
     recover: async (_, income) => { sent.push(income); processed = true; },
     toast: message => notifications.push(message),
   });
@@ -110,22 +159,44 @@ test('the recovery UI requires an explicit transfer and rechecks processing and 
     await until(() => !$('#trace-recover').disabled);
     assert.match($('#trace-steps').textContent, /Could not read callback status/);
     assert.match($('#trace-steps').textContent, /25\.000003 dUSDC/);
+    assert.equal($('#trace-steps').children[1].dataset.status, 'unknown');
+    assert.equal($('#trace-steps').children[2].dataset.status, 'unprocessed');
 
     quoteAmount = 12_000_000n;
+    reaction = { requested: false };
     $('#trace-recover').click();
     await until(() => !$('#trace-recover').disabled && notifications.length === 1);
     assert.equal(sent.length, 0);
     assert.match($('#trace-preview').textContent, /12\.0 dUSDC routed/);
+    assert.match($('#trace-steps').children[1].textContent, /No callback request is recorded/);
+    assert.equal($('#trace-steps').children[1].dataset.status, 'unrequested');
 
+    reaction = { requested: true, txHash: null };
+    groups = null;
     $('#trace-recover').click();
     await until(() => $('#trace-steps').textContent.includes('marked processed'));
     assert.equal(sent.length, 1);
     assert.equal(sent[0].logIndex, 7);
     assert.equal(sent[0].amount, 25_000_003n);
     assert.equal($('#trace-recover').hidden, true);
+    assert.match($('#trace-steps').children[1].textContent, /Callback requested.*link is unavailable/);
+    assert.equal($('#trace-steps').children[1].dataset.status, 'done');
+    assert.equal($('#trace-steps').children[1].querySelector('a'), null);
+    assert.equal($('#trace-steps').children[2].dataset.status, 'incomplete');
+    assert.match($('#trace-steps').children[2].textContent, /did not verify payout amounts/);
 
+    reaction = { requested: true, txHash: reactionHash };
+    groups = [{
+      originHash: sourceHash, logIndex: 7, blockNumber: 10, paycheck: 25_000_003n,
+      totalRouted: 12_000_000n, retained: 13_000_003n, skipped: 1, txHash: callbackHash,
+    }];
+    retryHistoryUnavailable = true;
     panel.open(sourceHash, 7);
-    await until(() => $('#trace-steps').textContent.includes('marked processed'));
+    await until(() => $('#trace-steps').children[2]?.dataset.status === 'partial');
+    assert.equal($('#trace-steps').children[1].querySelector('a').href, ctx.reactiveTxLink(reactionHash));
+    assert.equal($('#trace-steps').children[2].querySelector('a').href, ctx.txLink(callbackHash));
+    assert.match($('#trace-steps').children[2].textContent, /12\.0 dUSDC routed.*1 bucket skipped/);
+    assert.match($('#trace-steps').children[3].textContent, /Retry history is limited or unavailable/);
     assert.equal($('#trace-recover').hidden, true);
     assert.equal(sent.length, 1);
   } finally {

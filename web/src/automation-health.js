@@ -64,7 +64,8 @@ export function assessAutomationHealth(snapshot){
         if(s.cycle?.duration>0n&&s.cycle.anchor>BigInt(s.timestamp))add('cycle-pending','warning','Your payday cycle has not started','Wait until the saved UTC anchor. Income received before it will remain in your wallet.');
         if(s.policy?.validUntil>0n&&s.policy.validUntil<=BigInt(s.timestamp))add('expired','blocked','Your spending plan has expired','Review and extend its expiry before the next income.');
         if(s.policy?.dailyLimit>0n&&s.dailySpend?.day===BigInt(Math.floor(s.timestamp/86400))&&s.dailySpend.amount>=s.policy.dailyLimit)add('daily-limit','warning','Today’s spending limit is reached','Wait until the next UTC day or review the saved limit.');
-        if(s.tokenBalance!==undefined&&s.tokenBalance<=BigInt(s.policy?.reserve||0))add('reserve','warning','Current balance has no spendable amount above your reserve','A future income can restore spendable funds; the saved reserve remains protected.');
+        const reserve=BigInt(s.policy?.reserve||0);
+        if(reserve>0n&&s.tokenBalance!==undefined&&s.tokenBalance<=reserve)add('reserve','warning','Current balance has no spendable amount above your reserve','A future income can restore spendable funds; the saved reserve remains protected.');
       }
     }
   }

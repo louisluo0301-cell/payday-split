@@ -16,9 +16,22 @@ test('demo dashboard boots, saves controls, respects pause and manages allowance
   try {
     await import('../src/main.js');
     const $ = s => window.document.querySelector(s);
-    assert.match($('#network-label').textContent,/Demo/);
+    async function finishReview(action) {
+      const dialog = $('#action-review');
+      assert.equal(dialog.open, true);
+      const closed = new Promise(resolve => dialog.addEventListener('close', resolve, { once: true }));
+      $(action).click();
+      await closed;
+    }
+    assert.match($('#network-label').textContent,/Simulation/);
+    assert.equal($('#hero-demo').hash, '#proof');
     assert.equal($('#workspace-next-action').dataset.action, 'sample');
     const sample = $('#sample-input');
+    const rentSegment = $('#waterfall-bar').firstElementChild;
+    sample.value = '800';
+    sample.dispatchEvent(new window.Event('input', { bubbles: true }));
+    assert.equal($('#waterfall-bar').firstElementChild, rentSegment);
+    assert.equal(rentSegment.style.width, '37.5%');
     sample.value = '0';
     sample.dispatchEvent(new window.Event('input', { bubbles: true }));
     assert.equal(sample.getAttribute('aria-invalid'), 'true');
@@ -29,6 +42,28 @@ test('demo dashboard boots, saves controls, respects pause and manages allowance
     sample.dispatchEvent(new window.Event('input', { bubbles: true }));
     assert.equal($('#sample-error').hidden, true);
     assert.equal($('#buckets-list').children.length,3);
+    const savingsDestination = $('[data-destination="2"]');
+    const savingsPayee = $('input[data-i="2"][data-f="payee"]');
+    const savingsFixed = $('input[data-i="2"][data-f="fixed"]');
+    const savingsBps = $('input[data-i="2"][data-f="bps"]');
+    const originalPayee = savingsPayee.value;
+    savingsDestination.value = 'aave';
+    savingsDestination.dispatchEvent(new window.Event('change', { bubbles: true }));
+    assert.match($('#buckets-list .bucket-savings:not([hidden])').textContent, /Simulated supply allocation/);
+    assert.equal(savingsPayee.hidden, true);
+    assert.equal($('[data-destination="1"]').options[1].disabled, true);
+    savingsFixed.value = '180';
+    savingsBps.value = '0';
+    for (const field of [savingsFixed, savingsBps]) field.dispatchEvent(new window.Event('input', { bubbles: true }));
+    assert.match($('#rule-routed').textContent, /730\.00 dUSDC/);
+    savingsDestination.value = 'wallet';
+    savingsDestination.dispatchEvent(new window.Event('change', { bubbles: true }));
+    assert.equal(savingsPayee.hidden, false);
+    assert.equal(savingsPayee.value, originalPayee);
+    assert.equal(savingsFixed.value, '180');
+    savingsFixed.value = '';
+    savingsBps.value = '15';
+    for (const field of [savingsFixed, savingsBps]) field.dispatchEvent(new window.Event('input', { bubbles: true }));
     assert.ok($('.activity-group'), 'initial sample run renders');
     assert.match($('#health-summary').textContent,/Demo checks/);
     $('#trace-sample').click();
@@ -44,6 +79,7 @@ test('demo dashboard boots, saves controls, respects pause and manages allowance
     assert.match($('#health-items').textContent,/Sample spending plan is paused/);
     $('#faucet-btn').click();
     assert.match($('.activity-group').textContent,/1,000|1000/);
+    assert.equal(window.document.querySelectorAll('.activity-group.motion-enter').length, 1);
     $('#policy-paused').checked = false;
     $('#policy-maxPerRun').value = '400';
     $('#save-policy').click();
@@ -54,12 +90,20 @@ test('demo dashboard boots, saves controls, respects pause and manages allowance
     assert.match($('.activity-group').textContent,/600\.00retained/);
     $('#approval-amount').value = '123.45';
     $('#approve-btn').click();
+    assert.match($('#action-review-facts').textContent, /123\.45 dUSDC/);
+    assert.match($('#allowance-pill').textContent, /Unlimited/);
+    await finishReview('#action-review-confirm');
     assert.match($('#allowance-pill').textContent,/123.45/);
     $('#revoke-allowance').click();
+    await finishReview('#action-review-cancel');
+    assert.match($('#allowance-pill').textContent,/123.45/);
+    $('#revoke-allowance').click();
+    await finishReview('#action-review-confirm');
     assert.match($('#allowance-pill').textContent,/Allowance —/);
     assert.match($('#health-items').textContent,/Sample allowance is zero/);
     // Targets count payouts from activation, then prevent repeated bill payments.
     $('#approval-amount').value='10000'; $('#approve-btn').click();
+    await finishReview('#action-review-confirm');
     $('#policy-maxPerRun').value='0'; $('#save-policy').click();
     $('[data-goal="0"]').value='350'; $('[data-save-goal="0"]').click();
     await Promise.resolve();
@@ -87,6 +131,8 @@ test('demo dashboard boots, saves controls, respects pause and manages allowance
     assert.match($('.activity-group').textContent,/\+75\.00/);
     // New templates, pro-rata budgets, stable UI identities and automatic weekly rollover.
     $('[data-preset="balanced"]').click();
+    assert.equal($('#buckets-list').children.length, 1);
+    await finishReview('#action-review-confirm');
     $('#policy-maxPerRun').value='600'; $('#save-policy').click();
     $('#save-allocation').click(); await Promise.resolve();
     $('#faucet-btn').click();

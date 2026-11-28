@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="PaydaySplit — every income routed automatically: rent first, tax reserved, savings funded, the rest stays yours. Powered by Reactive Network." />
+    <meta name="description" content="Set a plan for incoming stablecoin payments. Route rent, tax reserves and savings, then track each payout from transfer to callback." />
     <meta name="theme-color" content="#f6f1e6" />
     <meta property="og:type" content="website" />
     <meta property="og:title" content="PaydaySplit — Reactive Income Waterfall" />
@@ -13,7 +13,44 @@
     <meta name="twitter:title" content="PaydaySplit — Reactive Income Waterfall" />
     <meta name="twitter:description" content="Set it once; every payment pays what matters first." />
     <meta name="twitter:image" content="/demo-poster.png" />
-    <title>PaydaySplit — every income, routed on autopilot</title>
+    <title>PaydaySplit — Stablecoin income routing</title>
+    <script>
+      if (location.protocol === "file:") document.documentElement.dataset.localFile = "true";
+    </script>
+    <style>
+      #local-preview-fallback { display: none; }
+      html[data-local-file] body > :not(#local-preview-fallback) { display: none; }
+      html[data-local-file] body {
+        display: grid;
+        place-items: center;
+        min-height: 100vh;
+        box-sizing: border-box;
+        margin: 0;
+        padding: 24px;
+        background: #f6f1e6;
+        color: #18271e;
+        font: 16px/1.55 system-ui, sans-serif;
+      }
+      html[data-local-file] #local-preview-fallback {
+        display: block;
+        box-sizing: border-box;
+        width: min(100%, 34rem);
+        padding: clamp(24px, 6vw, 40px);
+        border: 1px solid #c9d4ca;
+        border-radius: 20px;
+        background: #fffdf7;
+      }
+      #local-preview-fallback h1 { margin: 0; font-size: clamp(1.5rem, 6vw, 2rem); line-height: 1.15; }
+      #local-preview-fallback a {
+        display: inline-block;
+        padding: 10px 16px;
+        border-radius: 999px;
+        color: #fff;
+        background: #1a6543;
+        font-weight: 650;
+      }
+      #local-preview-fallback a:focus-visible { outline: 2px solid #1a6543; outline-offset: 3px; }
+    </style>
     <link rel="icon" type="image/svg+xml" href="/logo.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -22,116 +59,147 @@
       rel="stylesheet"
     />
     <link rel="stylesheet" href="/src/style.css" />
+    <link rel="stylesheet" href="/src/bucket-destinations.css" />
+    <link rel="stylesheet" href="/src/showcase-effects.css" />
+    <link rel="stylesheet" href="/src/walkthrough.css" />
+    <link rel="stylesheet" href="/src/action-review.css" />
+    <link rel="stylesheet" href="/src/browser-wallet.css" />
+    <link rel="stylesheet" href="/src/faucet-status.css" />
   </head>
   <body>
+    <section id="local-preview-fallback" aria-labelledby="local-preview-title">
+      <h1 id="local-preview-title">Open PaydaySplit in your browser</h1>
+      <p>The local preview loads the app so you can try a sample income or connect a wallet.</p>
+      <a href="http://127.0.0.1:5173/?demo=1">Open local preview</a>
+    </section>
     <div class="grain" aria-hidden="true"></div>
+    <a class="skip-link" href="#dashboard">Skip to workspace</a>
 
     <header class="site-header">
-      <a class="brand" href="/" aria-label="PaydaySplit home">
+      <a class="brand" href="#top" aria-label="PaydaySplit home">
         <img src="/logo.svg" alt="" class="brand-mark" />
         <span class="brand-name">PaydaySplit</span>
-        <span class="brand-tag">Income Waterfall</span>
       </a>
-      <nav class="nav">
+      <nav class="nav" aria-label="Product">
+        <a href="#dashboard" id="workspace-link">Workspace</a>
+        <a href="#proof">Testnet proof</a>
         <a href="#how">How it works</a>
-        <a href="#dashboard">Dashboard</a>
-        <a href="#security">Security</a>
-        <button class="btn btn-small btn-ink" id="connect-top" type="button">Connect wallet</button>
+        <button class="btn btn-small btn-ink" id="connect-top" type="button" aria-haspopup="dialog">Connect wallet</button>
       </nav>
     </header>
 
-    <main>
-      <section class="hero">
+    <main id="top">
+      <section class="hero" data-trail>
+        <div class="hero-aurora" aria-hidden="true"><i></i><i></i><i></i></div>
+        <canvas id="hero-particles" class="hero-particles" aria-hidden="true"></canvas>
         <div class="hero-copy">
-          <div class="eyebrow"><span class="pulse" aria-hidden="true"></span> Set it. Forget it. Route it.</div>
-          <h1>Every income,<br /><em>routed before<br />you spend it.</em></h1>
+          <h1>A plan for <em>every payday.</em></h1>
           <p class="lede">
-            Rent first. Tax reserved. Savings funded. The rest stays yours. One Reactive callback runs
-            your entire waterfall — no keeper, no spreadsheets, no monthly transfers.
+            Set aside rent, tax and savings as stablecoin payments arrive. PaydaySplit routes each payment
+            by your rules and leaves the remainder in your wallet.
           </p>
           <div class="hero-actions">
-            <button class="btn btn-primary" id="connect-hero" type="button">Connect wallet <span class="arrow">↗</span></button>
-            <a class="btn btn-ghost" href="?demo=1#dashboard" id="hero-demo">Try without a wallet <span class="arrow" aria-hidden="true">↗</span></a>
+            <button class="btn btn-primary" id="connect-hero" type="button" aria-haspopup="dialog">Connect wallet</button>
+            <a class="btn btn-outline" href="?demo=1#dashboard" id="hero-demo">Try without a wallet</a>
           </div>
           <div class="trust-row">
-            <span>Non-custodial</span><i></i><span>Up to 8 buckets</span><i></i><span id="network-label">Sepolia testnet</span>
+            <span id="network-label">Sepolia testnet</span>
+            <a class="guide-launch" href="#quick-start" data-open-walkthrough data-magnetic><span data-magnetic-content>Quick-start guide</span></a>
           </div>
         </div>
 
-        <div class="hero-art" aria-hidden="true">
-          <div class="halo"></div>
-          <div class="paycheck-card">
-            <div class="pc-top">
-              <span class="mono">INCOME</span>
-              <span class="pc-badge"><span class="dot"></span>EXAMPLE</span>
+        <div class="hero-art">
+          <div class="halo" aria-hidden="true"></div>
+          <div class="paycheck-showcase" data-tilt data-spotlight data-decode data-flip>
+            <div class="paycheck-faces">
+              <div class="paycheck-deck">
+                <article class="paycheck-card paycheck-front" aria-labelledby="example-title" data-flip-front>
+                  <div class="pc-top">
+                    <h2 id="example-title"><span class="showcase-sr-only">Freelancer plan</span><span data-decode-text aria-hidden="true">Freelancer plan</span></h2>
+                    <span class="pc-badge">Simulation</span>
+                  </div>
+                  <div class="pc-amount">1,000 <span>dUSDC</span></div>
+                  <p class="pc-rule">Example incoming payment</p>
+                  <ul class="wf-rows" aria-label="Example allocation in dUSDC">
+                    <li class="wf-row"><span><i class="wf-dot wf-rent" aria-hidden="true"></i>Rent</span><b>300</b><em>Fixed</em></li>
+                    <li class="wf-row"><span><i class="wf-dot wf-tax" aria-hidden="true"></i>Tax reserve</span><b>250</b><em>25%</em></li>
+                    <li class="wf-row"><span><i class="wf-dot wf-save" aria-hidden="true"></i>Savings</span><b>150</b><em>15%</em></li>
+                    <li class="wf-row wf-row-retained"><span><i class="wf-dot wf-spend" aria-hidden="true"></i>Stays in wallet</span><b>300</b><em>Remainder</em></li>
+                  </ul>
+                  <div class="wf-bar" aria-hidden="true">
+                    <span class="wf-seg wf-rent" style="width: 30%"></span>
+                    <span class="wf-seg wf-tax" style="width: 25%"></span>
+                    <span class="wf-seg wf-save" style="width: 15%"></span>
+                    <span class="wf-seg wf-spend" style="width: 30%"></span>
+                  </div>
+                  <div class="pc-footer">
+                    <span><strong>700 dUSDC</strong> routed</span>
+                    <span><strong>300 dUSDC</strong> retained</span>
+                  </div>
+                </article>
+                <article class="paycheck-card paycheck-back" id="example-details" aria-labelledby="example-details-title" data-flip-back aria-hidden="true" inert>
+                  <h2 id="example-details-title">How the sample splits</h2>
+                  <dl>
+                    <div><dt>Fixed amount</dt><dd>Rent takes 300 dUSDC first.</dd></div>
+                    <div><dt>Percentage of income</dt><dd>The tax and savings buckets use 25% and 15% of the original 1,000 dUSDC.</dd></div>
+                    <div><dt>Remainder</dt><dd>After 700 dUSDC is allocated, 300 dUSDC stays in the wallet.</dd></div>
+                  </dl>
+                  <a class="text-link" href="#quick-start">Build a sample plan ↗</a>
+                </article>
+              </div>
             </div>
-            <div class="pc-amount">$4,200<span>.00</span></div>
-            <div class="pc-rule">one waterfall · four destinations</div>
-            <div class="wf-rows">
-              <div class="wf-row"><span><i class="wf-dot wf-rent"></i>Rent</span><b>$1,260</b><em>30%</em></div>
-              <div class="wf-row"><span><i class="wf-dot wf-tax"></i>Tax reserve</span><b>$1,050</b><em>25%</em></div>
-              <div class="wf-row"><span><i class="wf-dot wf-save"></i>Savings</span><b>$630</b><em>15%</em></div>
-              <div class="wf-row"><span><i class="wf-dot wf-spend"></i>Spending</span><b>$1,260</b><em>30%</em></div>
-            </div>
-            <div class="wf-bar">
-              <span class="wf-seg wf-rent" style="width: 30%"></span>
-              <span class="wf-seg wf-tax" style="width: 25%"></span>
-              <span class="wf-seg wf-save" style="width: 15%"></span>
-              <span class="wf-seg wf-spend" style="width: 30%"></span>
-            </div>
-            <div class="pc-footer">
-              <span class="mono">4 buckets · 1 callback</span>
-              <span class="mono">via Reactive</span>
-            </div>
+            <button class="showcase-details" data-flip-trigger data-ripple type="button" aria-expanded="false" aria-controls="example-details" hidden>
+              <span class="showcase-open-text">See the allocation maths</span>
+              <span class="showcase-close-text">Back to the sample</span>
+            </button>
           </div>
-          <div class="stamp">
-            <span>LASNA</span>
-            <b>REACTIVE</b>
+        </div>
+      </section>
+
+      <section id="proof" class="chain-proof" aria-labelledby="proof-title">
+        <div class="chain-proof-panel" data-reveal>
+          <div class="chain-proof-header">
+            <div>
+              <h2 id="proof-title">Follow a real testnet payout</h2>
+              <p>Single-destination payout in dUSDC · Nov 23, 2026</p>
+            </div>
+            <dl class="chain-proof-amounts" aria-label="Testnet payout amounts in dUSDC">
+              <div><dt>Income</dt><dd>1,000</dd></div>
+              <div><dt>Routed</dt><dd>300</dd></div>
+              <div><dt>Retained</dt><dd>700</dd></div>
+            </dl>
           </div>
-          <div class="coin coin-a">$</div>
-          <div class="coin coin-b">%</div>
+          <ol class="chain-proof-stages">
+            <li>
+              <a href="https://sepolia.etherscan.io/tx/0x5407766076d2a9131a7fdd622dd15be693e3b3aec9f672399907e51d0d700fd6" target="_blank" rel="noreferrer">
+                <span>Sepolia · Origin</span><strong>Income transfer</strong><span class="chain-proof-arrow" aria-hidden="true">↗</span>
+              </a>
+            </li>
+            <li>
+              <a href="https://lasna.reactscan.net/tx/0x9eaceb9638091341be225bf5dc939a35bacb24b5babb3e035a40cd72ee56fa08" target="_blank" rel="noreferrer">
+                <span>Lasna · Reactive</span><strong>Callback request</strong><span class="chain-proof-arrow" aria-hidden="true">↗</span>
+              </a>
+            </li>
+            <li>
+              <a href="https://sepolia.etherscan.io/tx/0x66913a9758316f8c1f94fe997af744cb97f82905a3e3eeaf55edb1705c6fb21f" target="_blank" rel="noreferrer">
+                <span>Sepolia · Destination</span><strong>Payout receipt</strong><span class="chain-proof-arrow" aria-hidden="true">↗</span>
+              </a>
+            </li>
+          </ol>
+          <a class="chain-proof-details" href="https://github.com/louisluo0301-cell/payday-split/blob/main/deployments/paydaysplit-sepolia-lasna.evidence.json" target="_blank" rel="noreferrer">Contract addresses and evidence ↗</a>
         </div>
       </section>
 
-      <section class="marquee" aria-label="How it feels">
-        <div class="marquee-track">
-          <span>Rent first</span><b>✳</b><span>Tax reserved</span><b>✳</b><span>Savings funded</span><b>✳</b><span>Rest stays yours</span><b>✳</b>
-          <span>Rent first</span><b>✳</b><span>Tax reserved</span><b>✳</b><span>Savings funded</span><b>✳</b><span>Rest stays yours</span><b>✳</b>
-        </div>
-      </section>
-
-      <section class="stats" aria-label="At a glance">
-        <div class="stat">
-          <span class="stat-label">Trigger</span>
-          <strong>ERC-20 <em>Transfer</em></strong>
-          <span class="stat-note">the moment income lands</span>
-        </div>
-        <div class="stat">
-          <span class="stat-label">Execution</span>
-          <strong>Reactive <em>react()</em></strong>
-          <span class="stat-note">mirrors rules, no server</span>
-        </div>
-        <div class="stat">
-          <span class="stat-label">Settlement</span>
-          <strong>One callback, <em>8 buckets</em></strong>
-          <span class="stat-note">fixed + percentage, in priority</span>
-        </div>
-        <div class="stat">
-          <span class="stat-label">Custody</span>
-          <strong>Zero</strong>
-          <span class="stat-note">your keys, your allowance</span>
-        </div>
-      </section>
-
-      <section id="dashboard" class="dashboard">
+      <section id="dashboard" class="dashboard" aria-labelledby="dashboard-title" tabindex="-1">
         <div class="section-head">
           <div>
             <h2 id="dashboard-title">Income workspace</h2>
           </div>
           <div class="wallet-chip" id="wallet-chip">
-            <span class="wallet-dot"></span>
+            <span class="wallet-dot" aria-hidden="true"></span>
             <span id="wallet-label">Not connected</span>
             <span id="wallet-provider-label" hidden></span>
+            <button id="connect-workspace" class="btn btn-small btn-outline" type="button" aria-haspopup="dialog">Connect wallet</button>
             <button id="wallet-reauthorize" class="link-btn" type="button" hidden>Update wallet access</button>
             <button id="disconnect" type="button" class="link-btn" hidden>Disconnect</button>
           </div>
@@ -152,22 +220,55 @@
           <button id="open-deployment" class="btn btn-small btn-outline" type="button">Open testnet workspace</button>
         </div>
 
-        <section class="workspace-next" aria-labelledby="workspace-next-title">
+        <section class="workspace-next" aria-labelledby="workspace-next-title" data-reveal>
           <div class="workspace-next-head">
             <div class="workspace-next-copy" role="status" aria-atomic="true">
               <p id="workspace-scope" class="workspace-scope">PaydaySplit</p>
-              <h3 id="workspace-next-title">Set up income routing</h3>
+              <h3 id="workspace-next-title" tabindex="-1">Set up income routing</h3>
               <p id="workspace-next-note"></p>
             </div>
             <a id="workspace-demo-link" href="?demo=1#dashboard" class="btn btn-primary" hidden>Open interactive demo</a>
             <button id="workspace-next-action" class="btn btn-primary" type="button" hidden></button>
           </div>
           <dl id="workspace-stages" class="workspace-stages" hidden>
+            <div><dt>Wallet</dt><dd id="workspace-wallet"></dd></div>
             <div><dt>Destinations</dt><dd id="workspace-plan"></dd></div>
             <div><dt>Spending permission</dt><dd id="workspace-allowance"></dd></div>
             <div><dt>Automation</dt><dd id="workspace-health"></dd></div>
           </dl>
         </section>
+
+        <details class="quick-start" id="quick-start">
+          <summary>
+            <span>
+              <strong>Quick-start guide</strong>
+              <span>Try a plan with sample funds before setting up a wallet.</span>
+            </span>
+          </summary>
+          <ol class="quick-start-grid">
+            <li>
+              <h3>Choose a destination</h3>
+              <p>Send to a wallet, or choose Aave V3 for a supported savings asset.</p>
+              <a href="#buckets-list">Edit destinations ↗</a>
+            </li>
+            <li>
+              <h3>Set an amount</h3>
+              <p>For a fixed allocation, fill in Fixed amount and leave the percentage at zero. Set a sample income to check the result.</p>
+              <a href="#sample-input">Enter a preview amount ↗</a>
+            </li>
+            <li>
+              <h3>Inspect the split</h3>
+              <p>Run a sample income to check the payouts and what stays in your wallet.</p>
+              <a href="?demo=1#dashboard" target="_blank" rel="noreferrer" data-guide-demo>Open the interactive demo ↗</a>
+            </li>
+            <li>
+              <h3>Enable on testnet</h3>
+              <p>Open a verified testnet workspace, connect a test wallet and save the plan. Set a spending limit, then use Check now in Automation health before receiving test income.</p>
+              <a href="#open-deployment">Find testnet setup ↗</a>
+            </li>
+          </ol>
+          <button id="open-walkthrough" class="btn btn-small btn-outline" type="button" data-open-walkthrough hidden>Open guided setup</button>
+        </details>
 
         <div class="grid">
           <article class="card card-rule">
@@ -177,8 +278,8 @@
             </div>
 
             <div class="mode-switch" role="group" aria-label="Waterfall mode">
-              <button type="button" class="mode-btn active" data-mode="personal">Personal</button>
-              <button type="button" class="mode-btn" data-mode="team">Team payroll</button>
+              <button type="button" class="mode-btn active" data-mode="personal" aria-pressed="true">Personal</button>
+              <button type="button" class="mode-btn" data-mode="team" aria-pressed="false">Team payroll</button>
             </div>
 
             <div class="rule-readout">
@@ -228,7 +329,6 @@
 
               <div class="rule-actions">
                 <button class="link-btn" id="pause-rule" type="button">Pause all</button>
-                <button class="link-btn" id="revoke-allowance" type="button">Revoke allowance</button>
               </div>
 
               <p id="rule-error" class="rule-error" role="alert" hidden></p>
@@ -256,19 +356,28 @@
                 </div>
                 <div class="approval-entry">
                   <label for="approval-amount">Allowance amount <span id="approval-unit"></span></label>
-                  <input id="approval-amount" type="text" inputmode="decimal" aria-describedby="approval-note" value="1000">
+                  <input id="approval-amount" type="text" inputmode="decimal" aria-describedby="approval-note allowance-status" value="1000">
                   <button class="btn btn-small btn-outline" id="approve-btn" type="button" disabled>Approve</button>
                 </div>
+                <button class="link-btn" id="revoke-allowance" type="button" disabled>Revoke allowance</button>
+                <p class="fineprint allowance-status" id="allowance-status" role="status"></p>
               </div>
 
               <div class="action-step" id="step-paycheck">
                 <div class="step-body">
-                  <b id="faucet-title">Claim a demo income</b>
+                  <b id="faucet-title">Receive income</b>
                   <span id="faucet-note">Connect your wallet to see how to receive this asset.</span>
-                  <span id="faucet-progress" class="income-progress" role="status"></span>
-                  <button id="faucet-trace" class="link-btn" type="button" hidden>Trace this income</button>
                 </div>
-                <button class="btn btn-small btn-ink" id="faucet-btn" type="button" disabled>Claim</button>
+                <button class="btn btn-small btn-ink" id="faucet-btn" type="button" aria-describedby="faucet-note" disabled hidden>Claim</button>
+                <div id="faucet-feedback">
+                  <p id="faucet-progress" role="status" aria-atomic="true" tabindex="-1"></p>
+                  <code id="faucet-hash" aria-label="Source transaction hash" hidden></code>
+                  <div class="faucet-actions">
+                    <a id="faucet-source" class="btn btn-small btn-outline" target="_blank" rel="noreferrer" hidden>View source transaction</a>
+                    <button id="faucet-check" class="btn btn-small btn-outline" type="button" hidden>Check confirmation</button>
+                    <button id="faucet-trace" class="btn btn-small btn-outline" type="button" hidden>Trace this income</button>
+                  </div>
+                </div>
               </div>
 
               <div class="action-step">
@@ -493,80 +602,74 @@
       <section id="how" class="how">
         <div class="section-head">
           <div>
-            <div class="kicker">The waterfall</div>
-            <h2>Rent first. Then everything else.</h2>
+            <h2>How income gets routed</h2>
           </div>
           <p class="section-lede">
-            Fixed bills protect what matters. Percentages reserve tax, savings, and investing. The rest
-            stays in your wallet. Reactive enforces the order on-chain.
+            Fixed allocations are paid first. Percentage allocations use the gross payment amount. Reactive
+            requests one callback for the saved plan.
           </p>
         </div>
 
-        <div class="loop-diagram">
+        <div class="loop-diagram" data-reveal>
           <div class="loop-node">
-            <div class="node-tag">01 · ORIGIN</div>
-            <h4>Income lands</h4>
-            <p>An employer, client, or the demo faucet emits <code>Transfer(0x0, you, 1000)</code>.</p>
+            <div class="node-tag">Origin</div>
+            <h3>Income lands</h3>
+            <p>A transfer of the configured ERC-20 arrives at your wallet.</p>
             <span class="node-chain">Sepolia</span>
           </div>
           <div class="loop-arrow"><span>event</span>→</div>
           <div class="loop-node node-green">
-            <div class="node-tag">02 · REACTIVE</div>
-            <h4><code>react()</code> decides</h4>
-            <p>Lasna mirrors your bucket list, version, and subscribes to your incoming transfers.</p>
+            <div class="node-tag">Reactive</div>
+            <h3>Reactive checks it</h3>
+            <p>The Lasna contract matches the incoming event against your subscribed wallet, token and plan version.</p>
             <span class="node-chain">Lasna</span>
           </div>
           <div class="loop-arrow"><span>callback</span>→</div>
           <div class="loop-node">
-            <div class="node-tag">03 · DESTINATION</div>
-            <h4>Waterfall runs</h4>
-            <p><code>executeSplit()</code> pays fixed buckets first, then percentages, and retains the rest.</p>
+            <div class="node-tag">Destination</div>
+            <h3>The split settles</h3>
+            <p>The destination contract pays each eligible allocation within your limits and records what stayed in the wallet.</p>
             <span class="node-chain">Sepolia</span>
           </div>
         </div>
 
         <div class="how-grid">
           <div class="how-card">
-            <span class="how-num">01</span>
-            <h4>Build the waterfall</h4>
+            <h3>Set the order</h3>
             <p>Add up to 8 destinations. Give each one a fixed amount, a percentage, or both. Order is priority.</p>
           </div>
           <div class="how-card">
-            <span class="how-num">02</span>
-            <h4>Approve once</h4>
-            <p>The contract only moves tokens you have explicitly approved. Revoke the allowance and the automation stops.</p>
+            <h3>Limit the allowance</h3>
+            <p>Grant a specific token allowance. Reduce or revoke it at any time.</p>
           </div>
           <div class="how-card">
-            <span class="how-num">03</span>
-            <h4>Forget it</h4>
-            <p>One incoming payment triggers one callback. No keeper, no spreadsheets, no monthly transfers.</p>
+            <h3>Check a receipt</h3>
+            <p>Use the source transfer hash to see the callback, allocations and any amount still to recover.</p>
           </div>
         </div>
       </section>
 
       <section id="security" class="security">
         <div class="security-copy">
-          <div class="kicker">Built to be boring</div>
-          <h2>Safety is the feature.</h2>
+          <h2>Set spending limits</h2>
           <p>
-            The waterfall is deliberately bounded: fixed amounts first, percentages capped at 100%, and
-            one versioned rule per token. A single failed bucket does not block the rest.
+            Your wallet holds unpaid funds. A configured allowance lets the contract send allocations
+            when the rules are met.
           </p>
           <ul class="check-list">
-            <li><span>✓</span> Non-custodial — the contract never holds your principal</li>
-            <li><span>✓</span> Up to 8 buckets, fixed + percentage, priority order</li>
-            <li><span>✓</span> 100% total percentage cap; each payout capped by the paycheck</li>
-            <li><span>✓</span> Versioned rules; stale callbacks cannot apply a new rule</li>
-            <li><span>✓</span> Two callback checks, replay protection, per-bucket failure isolation</li>
+            <li><span aria-hidden="true">✓</span> Limit payouts per income and per UTC day.</li>
+            <li><span aria-hidden="true">✓</span> Keep a minimum token balance in the wallet.</li>
+            <li><span aria-hidden="true">✓</span> Pause automation or let the plan expire.</li>
+            <li><span aria-hidden="true">✓</span> Inspect skipped allocations before attempting recovery.</li>
           </ul>
-          <a class="text-link" href="https://github.com/Reactive-Network/reactive-lib-omni" target="_blank" rel="noreferrer">Built on reactive-lib-omni ↗</a>
+          <a class="text-link" href="https://github.com/louisluo0301-cell/payday-split/blob/main/docs/SECURITY.md" target="_blank" rel="noreferrer">Security model and deployment limits ↗</a>
         </div>
         <div class="security-art" aria-hidden="true">
           <div class="shield">
             <div class="shield-inner">
-              <span class="mono">WATERFALL</span>
-              <strong>8×</strong>
-              <span class="mono">1 CALLBACK</span>
+              <span class="mono">UP TO</span>
+              <strong>8</strong>
+              <span class="mono">DESTINATIONS</span>
             </div>
           </div>
           <div class="sec-note sec-note-a">fixed bills first</div>
@@ -580,11 +683,12 @@
         <img src="/logo.svg" alt="" />
         <div>
           <strong>PaydaySplit</strong>
-          <span>Every income, routed.</span>
+          <span>Stablecoin income routing</span>
         </div>
       </div>
       <div class="footer-links">
-        <a href="#dashboard">Dashboard</a>
+        <a href="#dashboard">Workspace</a>
+        <a href="#proof">Testnet proof</a>
         <a href="#how">How it works</a>
         <a href="https://dev.reactive.network/" target="_blank" rel="noreferrer">Reactive docs</a>
         <a href="https://dorahacks.io/hackathon/reactive-omni-buildathon/detail" target="_blank" rel="noreferrer">Buildathon</a>
@@ -595,21 +699,114 @@
       </div>
     </footer>
 
-    <dialog id="wallet-dialog" class="import-dialog" aria-labelledby="wallet-dialog-title">
+    <dialog id="walkthrough-dialog" class="import-dialog walkthrough-dialog" aria-labelledby="walkthrough-title">
+      <div class="import-form">
+        <header class="import-head walkthrough-header">
+          <h2 id="walkthrough-title" tabindex="-1">Get started with PaydaySplit</h2>
+          <form method="dialog"><button class="btn btn-small btn-ghost" type="submit">Close</button></form>
+        </header>
+
+        <div class="walkthrough-panel" data-walkthrough-panel="start">
+          <p>Choose how you want to begin.</p>
+          <div class="walkthrough-choices">
+            <button type="button" data-walkthrough-view="demo">
+              <strong>Try a sample income</strong>
+              <span>Set destinations and see how a sample payment splits. No wallet needed.</span>
+            </button>
+            <button type="button" data-walkthrough-view="testnet">
+              <strong>Set up a testnet plan</strong>
+              <span>Use a test wallet to save a plan and verify automatic routing.</span>
+            </button>
+          </div>
+        </div>
+
+        <section class="walkthrough-panel" data-walkthrough-panel="demo" aria-labelledby="walkthrough-demo-title" hidden>
+          <h3 id="walkthrough-demo-title" tabindex="-1">Try a sample income</h3>
+          <ol class="walkthrough-steps">
+            <li>
+              <strong>Choose a destination</strong>
+              <p>Send to a wallet or choose simulated Aave V3 supply.</p>
+              <button class="link-btn" type="button" data-walkthrough-action="destinations" data-walkthrough-demo hidden>Edit destinations</button>
+            </li>
+            <li>
+              <strong>Set an amount</strong>
+              <p>For a fixed allocation, enter an amount and keep the percentage at zero. Set the sample income to preview the split.</p>
+              <button class="link-btn" type="button" data-walkthrough-action="preview" data-walkthrough-demo hidden>Edit preview amount</button>
+            </li>
+            <li>
+              <strong>Check the result</strong>
+              <p>Run a sample to see the amount sent to each destination and what stays in the wallet.</p>
+            </li>
+          </ol>
+          <div class="walkthrough-actions">
+            <button class="btn btn-small btn-ghost" type="button" data-walkthrough-view="start">Back</button>
+            <button class="btn btn-small btn-primary" type="button" data-walkthrough-action="sample" data-walkthrough-demo hidden>Run sample income</button>
+            <a class="btn btn-small btn-primary" href="?demo=1#quick-start" target="_blank" rel="noopener" data-walkthrough-external>Open demo in a new tab</a>
+          </div>
+        </section>
+
+        <section class="walkthrough-panel" data-walkthrough-panel="testnet" aria-labelledby="walkthrough-testnet-title" hidden>
+          <h3 id="walkthrough-testnet-title" tabindex="-1">Set up a testnet plan</h3>
+          <ol class="walkthrough-steps">
+            <li><strong>Open a testnet workspace</strong><p>Upload or paste a deployment JSON. Connect a test wallet after the workspace verifies the contracts.</p></li>
+            <li><strong>Save your destinations</strong><p>Review the split and approve a spending limit for the saved plan.</p></li>
+            <li><strong>Verify automation</strong><p>Select Check now in Automation health. When the plan is ready, receive test income and follow the payout in Income trace.</p></li>
+          </ol>
+          <div class="walkthrough-actions">
+            <button class="btn btn-small btn-ghost" type="button" data-walkthrough-view="start">Back</button>
+            <button class="btn btn-small btn-outline" type="button" data-walkthrough-action="deployment">Open deployment settings</button>
+            <button class="btn btn-small btn-primary" type="button" data-walkthrough-action="next" data-walkthrough-testnet>Go to workspace setup</button>
+          </div>
+        </section>
+      </div>
+    </dialog>
+
+    <dialog id="wallet-dialog" class="import-dialog manual-dialog wallet-dialog" aria-labelledby="wallet-dialog-title" aria-describedby="wallet-dialog-description">
       <div class="import-form">
         <header class="import-head">
-          <h3 id="wallet-dialog-title">Choose a browser wallet</h3>
-          <p>Select the extension you want to use for this workspace.</p>
+          <h3 id="wallet-dialog-title" tabindex="-1">Connect wallet</h3>
+          <p id="wallet-dialog-description">Choose an Ethereum wallet installed in this browser.</p>
         </header>
         <div id="wallet-options" class="wallet-options"></div>
-        <div class="import-actions"><button class="btn btn-small btn-ghost" id="wallet-cancel" type="button">Close</button></div>
+        <div class="wallet-empty" id="wallet-empty" hidden>
+          <p id="wallet-detection-status" role="status"></p>
+          <p>Open this page where your Ethereum wallet is installed, then check again.</p>
+          <button class="btn btn-small btn-outline" id="wallet-check-again" type="button">Check again</button>
+        </div>
+        <div class="import-actions">
+          <a class="btn btn-small btn-outline" id="wallet-open-demo" href="?demo=1#dashboard" hidden>Use the demo</a>
+          <button class="btn btn-small btn-ghost" id="wallet-cancel" type="button">Close</button>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="wallet-account-dialog" class="import-dialog manual-dialog wallet-dialog" aria-labelledby="wallet-account-title" aria-describedby="wallet-account-description">
+      <div class="import-form">
+        <header class="import-head">
+          <h3 id="wallet-account-title" tabindex="-1">Connected wallet</h3>
+          <p id="wallet-account-description"></p>
+        </header>
+        <dl class="wallet-account-details">
+          <div><dt>Wallet</dt><dd id="wallet-account-provider"></dd></div>
+          <div><dt>Network</dt><dd id="wallet-account-network"></dd></div>
+          <div class="wallet-account-address"><dt>Address</dt><dd id="wallet-account-address"></dd></div>
+        </dl>
+        <div class="wallet-account-copy">
+          <button class="btn btn-small btn-outline" id="wallet-copy-address" type="button">Copy address</button>
+          <p id="wallet-account-status" class="fineprint" role="status"></p>
+        </div>
+        <div class="import-actions">
+          <button class="btn btn-small btn-ghost" id="wallet-account-close" type="button">Close</button>
+          <button class="btn btn-small btn-outline" id="wallet-account-disconnect" type="button">Disconnect</button>
+          <button class="btn btn-small btn-primary" id="wallet-account-open-deployment" type="button" aria-haspopup="dialog" aria-controls="deployment-dialog" hidden>Open testnet workspace</button>
+        </div>
       </div>
     </dialog>
 
     <dialog id="deployment-dialog" class="import-dialog manual-dialog" aria-labelledby="deployment-dialog-title">
       <form class="import-form" id="deployment-form">
         <header class="import-head">
-          <h3 id="deployment-dialog-title">Open a testnet workspace</h3>
+          <h3 id="deployment-dialog-title" tabindex="-1" autofocus>Open a testnet workspace</h3>
           <p>Use a deployment JSON from a source you trust. Contract checks run before the workspace opens. The file stays in this browser tab.</p>
         </header>
         <label for="deployment-file">Deployment file</label>
@@ -631,6 +828,11 @@
           <h3 id="manual-title">Review a new payment</h3>
           <p id="manual-context"></p>
         </header>
+        <ol class="manual-stages" id="manual-stages" aria-label="Payment progress">
+          <li aria-current="step">Review</li>
+          <li>Wallet</li>
+          <li>Receipt</li>
+        </ol>
         <label for="manual-amount">Income amount to allocate</label>
         <div class="manual-amount">
           <input id="manual-amount" type="text" inputmode="decimal" autocomplete="off" aria-describedby="manual-status">
@@ -669,5 +871,6 @@ Ops,0x3333333333333333333333333333333333333333,800"></textarea>
     </div>
 
     <script type="module" src="/src/main.js"></script>
+    <script type="module" src="/src/presentation.js"></script>
   </body>
 </html>

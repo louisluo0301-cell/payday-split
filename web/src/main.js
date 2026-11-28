@@ -15,11 +15,11 @@ import { createBudgetControls } from "./budget-controls.js";
 import { collectAutomationHealth, demoHealthReport } from "./automation-health.js";
 import { createHealthPanel } from "./health-panel.js";
 import { createIncomeTrace } from "./income-trace.js";
-import { groupWaterfallEvents, incomeTransfers, matchedPayout, recoveryQuote } from "./income-evidence.js";
-import { createIncomeModules } from "./income-modules.js";
+import { claimedIncome, groupWaterfallEvents, incomeKeys, incomeTransfers, matchedPayout, recoveryQuote } from "./income-evidence.js";
+import { createIncomeModules, SAMPLE_SAVINGS_DESTINATION } from "./income-modules.js";
 import { wireCctpCollection } from "./cctp-collection.js";
 import { selectDeploymentAsset } from "./deployment-assets.js";
-import { switchWalletChain, verifyWalletContext } from "./wallet-context.js";
+import { readWalletChainId, readWalletIdentity, switchWalletChain, verifyWalletContext } from "./wallet-context.js";
 import { readIncomeRetries } from "./retry-evidence.js";
 import { exportLedger, importRecipients } from "./ledger-csv.js";
 import { workspaceJourney } from "./workspace-journey.js";
@@ -27,6 +27,8 @@ import { createManualPayment, paymentQuoteKey } from "./manual-payment.js";
 import { createBrowserWallet } from "./browser-wallet.js";
 import { DEPLOYMENT_SESSION, parseTestnetDeployment, wireTestnetDeployment } from "./browser-deployment.js";
 import { readFaucet, readWalletSnapshot } from "./wallet-snapshot.js";
+import { updateWalletAllowance } from "./wallet-allowance.js";
+import { createActionReview } from "./action-review.js";
 
 let demoPolicy = {};
 let demoSpent = 0n;
@@ -124,18 +126,21 @@ try {
 } catch {
   // Static file is optional; the page still renders in "not deployed" mode.
 }
-if (!useLocal && !demoMode && params.get("deployment") === "session") {
+const openingSessionDeployment = !useLocal && !demoMode && params.get("deployment") === "session";
+if (openingSessionDeployment) {
   try {
     deployment = parseTestnetDeployment(sessionStorage.getItem(DEPLOYMENT_SESSION));
     usingSessionDeployment = true;
   } catch {
-    // The workspace can still open its bundled configuration.
+    deployment = { ...deployment, token: '', split: '', reactive: '', assets: [] };
   }
 }
+const sessionDeploymentMissing = openingSessionDeployment && !usingSessionDeployment;
 
 const assetProfile = selectDeploymentAsset(deployment, demoMode ? null : params.get("asset"));
 deployment = assetProfile.deployment;
 const configured = Boolean(deployment.token && deployment.split);
+const readOnlyWallet = demoMode || !configured;
 const chainId = Number(deployment.chainId || 11155111);
 const wrappedAsset = !demoMode && !!deployment.token
   && deployment.token.toLowerCase() === deployment.modules.wrappedNative?.toLowerCase();
@@ -250,6 +255,8 @@ const incomeModules = createIncomeModules({
   setWalletBusy: value => { state.busy = value; },
   refreshWorkspace: refreshAll,
   stageBucket: stageModuleBucket,
+  onSavingsChange: renderBucketDestinations,
+  reviewSavingsSetup,
 });
 let healthReadId = 0;
 let activityReadId = 0;
@@ -257,13 +264,20 @@ let walletReadId = 0;
 let walletBlockFloor = 0;
 let connectReadId = 0;
 let connecting = false;
+let walletSession = null;
 let lastHealth = null;
 let stopWalletEvents = () => {};
 const browserWallet = createBrowserWallet({ $, browser: window, onChange: renderWorkspace });
+const actionReview = createActionReview();
 const manualPayment = createManualPayment({
   $, context: () => ({ ...incomeTraceContext(), network: networkName() }),
   readQuote: readManualQuote, pay: submitManualPayment, labelFor, errorMessage: humanError,
   jumpToTrace: () => jumpTo("#trace-hash"),
+  jumpToHistory: () => jumpTo("#activity-heading"),
+  onTrackingChange: renderWorkspace,
+  onConfirmation: (ctx, receipt) => {
+    if (ctx.signer === state.signer) void refreshAll({ afterBlock: receipt.blockNumber });
+  },
 });
 
 /* ------------------------------------------------------------------ */
@@ -340,19 +354,23 @@ function jumpTo(selector) {
 }
 
 function renderWorkspace() {
-  const reportedVersion = lastHealth?.snapshot?.ruleVersion;
-  const reportedAllowance = lastHealth?.snapshot?.allowance;
-  const matchesSavedPlan = (reportedVersion === undefined || reportedVersion === BigInt(state.ruleVersion))
-    && (reportedAllowance === undefined || reportedAllowance === state.allowance);
-  const report = state.syncStatus === 'ready' && matchesSavedPlan ? lastHealth : null;
   const connected = !!state.signer;
+  const synced = connected && state.syncStatus === 'ready';
+  const snapshot = lastHealth?.snapshot;
+  const accountChecks = lastHealth?.scope === 'saved-plan' && snapshot?.account === state.account;
+  const matchesSavedPlan = (snapshot?.ruleVersion === undefined || snapshot.ruleVersion === BigInt(state.ruleVersion))
+    && (snapshot?.allowance === undefined || snapshot.allowance === state.allowance);
+  const report = synced && accountChecks && matchesSavedPlan ? lastHealth : null;
+  const modeDirty = state.draftAllocationMode !== state.allocationMode;
   const next = workspaceJourney({
-    demo: state.demoMode, configured, invalidAsset: assetProfile.invalid, hasWallet: browserWallet.hasWallet(),
+    demo: state.demoMode, configured, sessionDeploymentMissing, invalidAsset: assetProfile.invalid, hasWallet: browserWallet.hasWallet(),
+    walletLinked: Boolean(walletSession),
     syncStatus: state.syncStatus,
     connected, connecting, savedActive: state.savedActive, dirty: state.dirty, policyDirty,
-    modeDirty: state.draftAllocationMode !== state.allocationMode, allowance: state.allowance,
+    modeDirty, allowance: state.allowance,
     report, symbol: state.symbol, network: networkName(), nativeReceiver: wrappedAsset && !!deployment.modules.factory,
     demoToken: state.demoToken, faucetReady: !$("#faucet-btn").disabled,
+    testIncomePending: state.latestIncome?.phase === 'submitted',
   });
   const panel = $('.workspace-next');
   panel.dataset.tone = next.tone;
@@ -363,21 +381,34 @@ function renderWorkspace() {
   action.hidden = !next.action || next.action === 'demo';
   action.dataset.action = next.action ?? '';
   setText('workspace-next-action', next.label ?? '');
-  $('#workspace-demo-link').hidden = next.action !== 'demo';
-  $('#workspace-stages').hidden = !connected;
-  setText('workspace-plan', state.dirty ? 'Unsaved changes' : state.savedActive === null ? 'Checking'
-    : state.savedActive ? state.savedActive + ' active · v' + state.ruleVersion : 'No active destinations');
-  setText('workspace-allowance', state.savedActive === null ? 'Checking'
-    : state.allowance === 0n ? 'Required' : state.allowance === MaxUint256 ? 'Unlimited' : 'Set');
-  setText('workspace-health', { ready: 'Verified', blocked: 'Blocked', attention: 'Needs attention', inactive: 'Inactive' }[report?.status] ?? 'Check needed');
-  $('#run-now').disabled = !state.demoMode && (!connected || state.syncStatus !== 'ready' || !state.savedActive || state.dirty);
+  const demoLink = $('#workspace-demo-link');
+  demoLink.hidden = state.demoMode || (configured && next.action !== 'demo') || (assetProfile.invalid && !sessionDeploymentMissing);
+  demoLink.classList.toggle('btn-primary', next.action === 'demo');
+  demoLink.classList.toggle('btn-outline', next.action !== 'demo');
+  $('#workspace-stages').hidden = state.demoMode || !configured;
+  setText('workspace-wallet', connected ? 'Connected' : connecting ? 'Connecting…' : 'Required');
+  setText('workspace-plan', !connected ? 'After connection' : state.dirty ? 'Unsaved draft'
+    : state.syncStatus === 'unavailable' ? 'Refresh needed' : !synced ? 'Reading plan…'
+      : state.savedActive ? state.savedActive + ' active · v' + state.ruleVersion
+        : state.onchainBucketCount > 0 ? 'Inactive · v' + state.ruleVersion : 'Not set');
+  setText('workspace-allowance', !synced ? 'After plan check'
+    : state.allowance > 0n ? state.allowance === MaxUint256 ? 'Unlimited' : 'Set' : 'Required');
+  const healthStatus = { ready: 'Verified', blocked: 'Blocked', attention: 'Needs attention', inactive: 'Inactive' };
+  setText('workspace-health', !synced || !state.savedActive ? 'After plan setup'
+    : state.dirty || modeDirty || policyDirty ? 'Check after saving'
+      : healthStatus[report?.status] ?? 'Check needed');
+  const paymentPending = connected && manualPayment.hasPending();
+  setText('run-now', paymentPending ? 'Check manual payment' : 'Review new payment');
+  $('#run-now').disabled = !state.demoMode && !paymentPending
+    && (!connected || state.syncStatus !== 'ready' || !state.savedActive || state.dirty);
 }
 
 async function runWorkspaceAction() {
   if (state.busy) { toast('Finish the current wallet action first.'); return; }
   const action = $('#workspace-next-action').dataset.action;
   switch (action) {
-    case 'connect': await connect(); break;
+    case 'connect': await connect($('#workspace-next-action')); break;
+    case 'deployment': $('#open-deployment').click(); break;
     case 'refresh': await refreshAll(); break;
     case 'plan': jumpTo('#waterfall-title'); break;
     case 'asset': jumpTo('#asset-select'); break;
@@ -388,6 +419,10 @@ async function runWorkspaceAction() {
       jumpTo('#spending-controls summary');
       break;
     case 'health': jumpTo('#health-refresh'); break;
+    case 'check-health':
+      jumpTo('#health-refresh');
+      $('#health-refresh').click();
+      break;
     case 'native':
       $('#native-receiver').open = true;
       jumpTo('#native-receiver summary');
@@ -396,6 +431,7 @@ async function runWorkspaceAction() {
       if (runDemoIncome()) jumpTo('#activity-heading');
       break;
     case 'faucet': await claim(); break;
+    case 'claim-status': jumpTo('#faucet-progress'); break;
     case 'receive':
       if (!state.signer || !state.account) break;
       try {
@@ -553,20 +589,54 @@ const CHAIN_PARAMS = {
   },
 };
 
+function renderWalletControls() {
+  const account = walletSession?.account;
+  const top = $('#connect-top');
+  top.setAttribute('aria-label', account ? 'Manage connected wallet' : 'Connect wallet');
+  top.setAttribute('aria-busy', String(connecting));
+  setText('connect-top', account ? short(account) : connecting ? 'Connecting…' : 'Connect wallet');
+  setText('wallet-label', account ? short(account) : state.demoMode ? 'Demo mode' : 'Not connected');
+  setText('wallet-provider-label', walletSession?.providerLabel || '');
+  $('#wallet-chip').classList.toggle('connected', Boolean(account));
+  $('#wallet-provider-label').hidden = !account;
+  $('#connect-workspace').hidden = Boolean(account);
+  $('#disconnect').hidden = !account;
+}
+
+function connectedNetwork(chain) {
+  return chain === 1n ? 'Ethereum Mainnet' : CHAIN_PARAMS[chain]?.chainName || 'Chain ' + chain;
+}
+
+function openWalletSession(injected, account, chain) {
+  walletSession = { injected, account, chain, providerLabel: browserWallet.label(injected) };
+  stopWalletEvents = attachWalletEvents(injected);
+  $('#wallet-reauthorize').hidden = true;
+  renderWalletControls();
+}
+
 function attachWalletEvents(injected) {
   const changed = message => {
-    if (state.injected !== injected) return;
+    if (walletSession?.injected !== injected) return;
     disconnect();
     toast(message);
   };
   const handlers = {
     accountsChanged: accounts => {
-      if (accounts?.[0]?.toLowerCase() !== state.account?.toLowerCase()) {
-        changed("The wallet account changed. Connect again to open its plan.");
+      if (typeof accounts?.[0] !== 'string' || accounts[0].toLowerCase() !== walletSession?.account.toLowerCase()) {
+        changed("The wallet account changed. Connect again to continue.");
       }
     },
-    chainChanged: chain => {
-      if (Number(chain) !== chainId) changed("The wallet network changed. Reconnect to return to this plan.");
+    chainChanged: value => {
+      if (walletSession?.injected !== injected) return;
+      try {
+        const chain = readWalletChainId(value);
+        if (!readOnlyWallet && chain !== BigInt(chainId)) {
+          changed("The wallet network changed. Reconnect to return to this plan.");
+        } else if (walletSession.chain !== chain) {
+          walletSession.chain = chain;
+          browserWallet.closeAccount();
+        }
+      } catch { changed("The wallet reported an invalid network. Reconnect to continue."); }
     },
     disconnect: () => changed("The wallet lost its connection. Reconnect to continue."),
   };
@@ -579,29 +649,34 @@ function attachWalletEvents(injected) {
   };
 }
 
-async function connect() {
-  if (state.demoMode) {
-    document.querySelector("#dashboard")?.scrollIntoView({ behavior: "smooth" });
-    return;
-  }
-  if (!configured) {
-    if (assetProfile.invalid) jumpTo("#asset-select");
-    else location.assign($("#workspace-demo-link").href);
+async function connect(trigger = document.activeElement) {
+  if (walletSession) {
+    const { account, chain, providerLabel } = walletSession;
+    browserWallet.openAccount({ trigger, account, network: connectedNetwork(chain), providerLabel, readOnly: readOnlyWallet });
     return;
   }
   if (connecting || state.busy) return;
-  if (state.account) { $("#dashboard").scrollIntoView({ block: "start" }); return; }
 
   const request = ++connectReadId;
   connecting = true;
+  renderWalletControls();
   renderWorkspace();
-  setText("connect-top", "Connecting…");
   let provider;
   try {
-    const injected = await browserWallet.choose();
+    const injected = await browserWallet.choose({
+      explicit: true, trigger, network: networkName(), readOnly: readOnlyWallet,
+    });
     if (!injected || request !== connectReadId) return;
     const accounts = await injected.request({ method: "eth_requestAccounts" });
-    if (!accounts?.[0]) throw new Error("Select an account in your wallet to continue.");
+    if (request !== connectReadId) return;
+    if (!Array.isArray(accounts) || !accounts[0]) throw new Error("Select an account in your wallet to continue.");
+    if (readOnlyWallet) {
+      const { account, chain } = await readWalletIdentity(injected, accounts[0]);
+      if (request !== connectReadId) return;
+      openWalletSession(injected, account, chain);
+      toast("Wallet connected for address viewing.");
+      return;
+    }
     await switchWalletChain(injected, chainId, CHAIN_PARAMS[chainId]);
     const account = await verifyWalletContext(injected, chainId, accounts[0]);
     provider = new BrowserProvider(injected, chainId);
@@ -627,43 +702,53 @@ async function connect() {
       $("#sample-error").hidden = true;
     }
     Object.assign(state, { provider, signer, account, token, split, symbol, injected, decimals: Number(decimals), labels: loadLabels(account) });
-    stopWalletEvents = attachWalletEvents(injected);
-
-    $("#wallet-chip").classList.add("connected");
-    setText("wallet-label", short(account));
-    setText("wallet-provider-label", browserWallet.label(injected));
-    $("#wallet-provider-label").hidden = false;
-    $("#wallet-reauthorize").hidden = true;
-    $("#disconnect").hidden = false;
-    setText("connect-top", short(account));
+    openWalletSession(injected, account, BigInt(chainId));
 
     await refreshAll();
     if (request === connectReadId) incomeModules.refresh();
   } catch (err) {
-    if (request === connectReadId) toast(humanError(err), true);
+    if (request === connectReadId) {
+      const code = Number(err?.data?.originalError?.code ?? err?.code);
+      const message = code === 4001 || err?.code === 'ACTION_REJECTED'
+        ? 'Wallet connection or network switch declined. You can try again.'
+        : code === -32002 ? 'Open your wallet to respond to the pending connection request.'
+          : humanError(err);
+      toast(message, true);
+    }
   } finally {
     if (provider && provider !== state.provider) provider.destroy();
     if (request === connectReadId) {
       connecting = false;
+      if (!walletSession) browserWallet.clearSelection();
+      renderWalletControls();
       renderWorkspace();
-      if (!state.account) setText("connect-top", "Connect wallet");
     }
   }
 }
 
 function disconnect() {
   ++connectReadId;
+  connecting = false;
+  stopWalletEvents();
+  stopWalletEvents = () => {};
+  walletSession = null;
+  browserWallet.closeAccount();
+  browserWallet.clearSelection();
+  $('#wallet-reauthorize').hidden = true;
+  renderWalletControls();
+  if (!state.signer) {
+    renderWorkspace();
+    return;
+  }
   ++healthReadId;
   ++activityReadId;
   ++walletReadId;
   walletBlockFloor = 0;
-  connecting = false;
-  stopWalletEvents();
-  stopWalletEvents = () => {};
   lastHealth = null;
   healthPanel.reset();
   incomeTrace.reset();
   manualPayment.close();
+  actionReview.cancel();
   incomeModules.reset();
   planner.clear();
   policyDirty = false;
@@ -682,8 +767,7 @@ function disconnect() {
   state.faucetAmount = 0n;
   state.nextFaucetAt = 0;
   state.latestIncome = null;
-  setText("faucet-progress", "");
-  $("#faucet-trace").hidden = true;
+  renderFaucetClaim();
   state.buckets = clonePreset("freelancer");
   state.ruleVersion = 0;
   state.allocationMode = 0;
@@ -700,12 +784,6 @@ function disconnect() {
   $("#policy-paused").checked = false;
   setText("policy-status", "Connect to read onchain controls.");
 
-  $("#wallet-chip").classList.remove("connected");
-  setText("wallet-label", "Not connected");
-  $("#wallet-provider-label").hidden = true;
-  $("#wallet-reauthorize").hidden = true;
-  setText("connect-top", "Connect wallet");
-  $("#disconnect").hidden = true;
   renderDisconnected();
   loadReactiveStatus();
   previousProvider?.destroy();
@@ -754,6 +832,7 @@ async function refreshAll({ afterBlock } = {}) {
     Object.assign(state, { demoToken: Boolean(faucet), faucetAmount: faucet?.amount ?? 0n, nextFaucetAt: faucet?.next ?? 0,
       syncStatus: "ready" });
     lastHealth = null;
+    resumeFaucetClaim();
     renderConnected();
     loadReactiveStatus();
     await Promise.all([loadActivity({ head: snapshot.at.blockTag }), planner.load(snapshot.at)]);
@@ -831,7 +910,7 @@ function incomeTraceContext() {
   };
 }
 
-function stageModuleBucket(address, label) {
+function stageModuleBucket(address, label, destination) {
   if (state.busy) return;
   if (state.buckets.some(bucket => bucket.payee.toLowerCase() === address.toLowerCase())) {
     toast("This destination is already in the draft.");
@@ -841,7 +920,11 @@ function stageModuleBucket(address, label) {
     toast("Remove a destination before adding a module.", true);
     return;
   }
-  state.buckets.push({ label, payee: address, fixed: "", bps: "", active: false });
+  if (destination === 'aave' && state.buckets.some(bucket => bucketDestination(bucket) === 'aave')) {
+    toast("This plan already has an Aave destination.", true);
+    return;
+  }
+  state.buckets.push({ label, payee: address, fixed: "", bps: "", active: false, destination });
   state.dirty = true;
   renderBuckets();
   updateSummary();
@@ -947,18 +1030,32 @@ function renderBuckets() {
       <div class="bucket-identity">
         <input class="bucket-label" data-i="${index}" data-f="label" type="text" aria-label="Bucket label"
           placeholder="Label (rent, tax, design)" autocomplete="off" value="${escapeAttr(bucket.label || "")}" />
+        <select class="bucket-destination-select" data-destination="${index}" aria-label="Destination type for bucket ${index + 1}">
+          <option value="wallet">Wallet transfer</option>
+          <option value="aave">Aave V3 supply</option>
+        </select>
         <input class="bucket-payee" data-i="${index}" data-f="payee" type="text" aria-label="Bucket payee address"
           placeholder="0x… payee" autocomplete="off" spellcheck="false" value="${escapeAttr(bucket.payee)}" />
+        <div class="bucket-savings" hidden>
+          <p class="bucket-savings-note" role="status"></p>
+          <button class="btn btn-small btn-outline bucket-savings-action" data-savings-action="${index}" type="button" hidden></button>
+        </div>
       </div>
       <div class="bucket-amounts">
-        <label class="bucket-input">
-          <input data-i="${index}" data-f="fixed" type="text" inputmode="decimal" aria-label="Fixed amount in ${escapeAttr(state.symbol)}"
-            placeholder="fixed" value="${escapeAttr(bucket.fixed)}" />
+        <label class="bucket-amount-field">
+          <span class="bucket-amount-caption">Fixed amount</span>
+          <span class="bucket-input">
+            <input data-i="${index}" data-f="fixed" type="text" inputmode="decimal" aria-label="Fixed amount in ${escapeAttr(state.symbol)}"
+              placeholder="0" value="${escapeAttr(bucket.fixed)}" />
+          </span>
         </label>
-        <label class="bucket-input">
-          <input data-i="${index}" data-f="bps" type="text" inputmode="decimal" aria-label="Percentage for this destination"
-            placeholder="0" value="${escapeAttr(bucket.bps)}" />
-          <span class="bucket-suffix">%</span>
+        <label class="bucket-amount-field">
+          <span class="bucket-amount-caption">Percentage</span>
+          <span class="bucket-input">
+            <input data-i="${index}" data-f="bps" type="text" inputmode="decimal" aria-label="Percentage for this destination"
+              placeholder="0" value="${escapeAttr(bucket.bps)}" />
+            <span class="bucket-suffix" aria-hidden="true">%</span>
+          </span>
         </label>
       </div>
       <label class="bucket-active" title="Include this bucket">
@@ -975,6 +1072,87 @@ function renderBuckets() {
   });
 
   $("#add-bucket").disabled = state.buckets.length >= MAX_BUCKETS;
+  renderBucketDestinations();
+}
+
+function bucketDestination(bucket, savings = incomeModules.savingsDestination()) {
+  return bucket.destination === 'aave'
+    || (savings.address && bucket.payee.trim().toLowerCase() === savings.address.toLowerCase()) ? 'aave' : 'wallet';
+}
+
+function renderBucketDestinations() {
+  const savings = incomeModules.savingsDestination();
+  const chosen = state.buckets.findIndex(bucket => bucketDestination(bucket, savings) === 'aave');
+  const messages = {
+    sample: 'Simulated supply allocation.',
+    unsupported: 'Aave is unavailable for this asset.',
+    connect: 'Connect your wallet to set up supply.',
+    checking: 'Checking the configured adapter…',
+    unavailable: 'The configured Aave adapter could not be verified.',
+    create: 'Create a savings adapter for this wallet and asset.',
+    bind: 'Enable the adapter before saving this destination.',
+    ready: useLocal ? 'Local mock reserve · simulated supply.' : 'Your wallet receives aTokens. The supply rate varies.',
+    working: 'Waiting for your wallet or confirmation…',
+  };
+  const actions = { connect: 'Connect wallet', unavailable: 'Check setup', create: 'Create adapter', bind: 'Enable supply' };
+
+  for (const row of $("#buckets-list").children) {
+    const select = row.querySelector('[data-destination]');
+    if (!select) continue;
+    const index = Number(select.dataset.destination);
+    const bucket = state.buckets[index];
+    if (!bucket) continue;
+    const isSavings = bucketDestination(bucket, savings) === 'aave';
+    const savingsOption = select.options[1];
+    savingsOption.disabled = !isSavings && (savings.step === 'unsupported' || (chosen >= 0 && chosen !== index));
+    savingsOption.textContent = savings.step === 'unsupported' && !isSavings ? 'Aave V3 unavailable' : 'Aave V3 supply';
+    select.value = isSavings ? 'aave' : 'wallet';
+    const walletField = row.querySelector('.bucket-payee');
+    walletField.hidden = isSavings;
+    walletField.disabled = isSavings;
+    row.querySelector('.bucket-savings').hidden = !isSavings;
+    if (!isSavings) continue;
+
+    bucket.destination = 'aave';
+    if (!bucket.payee && (savings.step === 'ready' || savings.step === 'sample')) bucket.payee = savings.address;
+    const differs = savings.step === 'ready' && bucket.payee.toLowerCase() !== savings.address.toLowerCase();
+    const note = row.querySelector('.bucket-savings-note');
+    note.textContent = differs ? 'The bound adapter changed. Select Wallet transfer, then reselect Aave.' : messages[savings.step];
+    const action = row.querySelector('[data-savings-action]');
+    action.textContent = actions[savings.step] || '';
+    action.hidden = !actions[savings.step];
+    action.dataset.step = savings.step;
+    action.disabled = state.busy;
+  }
+}
+
+function setBucketDestination(index, destination) {
+  const bucket = state.buckets[index];
+  if (!bucket || state.busy || !['wallet', 'aave'].includes(destination) || bucketDestination(bucket) === destination) {
+    renderBucketDestinations();
+    return;
+  }
+  const savings = incomeModules.savingsDestination();
+  if (destination === 'aave') {
+    if (savings.step === 'unsupported' || state.buckets.some((other, i) => i !== index && bucketDestination(other, savings) === 'aave')) {
+      renderBucketDestinations();
+      return;
+    }
+    bucket.walletPayee = bucket.payee;
+    bucket.payee = savings.step === 'ready' || savings.step === 'sample' ? savings.address : '';
+    if (!bucket.label) bucket.label = 'Aave savings';
+  } else {
+    bucket.payee = bucket.walletPayee?.trim().toLowerCase() === savings.address?.toLowerCase() ? '' : bucket.walletPayee || '';
+    delete bucket.walletPayee;
+  }
+  bucket.destination = destination;
+  const row = $("#buckets-list").children[index];
+  row.querySelector('.bucket-payee').value = bucket.payee;
+  row.querySelector('.bucket-label').value = bucket.label || '';
+  state.dirty = true;
+  clearRuleError();
+  renderBucketDestinations();
+  updateSummary();
 }
 
 function updateSummary() {
@@ -1027,23 +1205,22 @@ function updateSummary() {
   setText("allocated-label", `${fmt(routed)} routed`);
 
   const bar = $("#waterfall-bar");
-  bar.innerHTML = "";
-  rows.forEach((row) => {
-    if (row.paid <= 0) return;
-    const seg = document.createElement("span");
-    seg.className = "waterfall-seg";
-    seg.style.width = `${row.pct}%`;
-    seg.style.background = row.color;
-    seg.title = `${row.label}: ${fmt(row.paid)}`;
-    bar.append(seg);
-  });
+  const segments = rows.filter(row => row.paid > 0n);
   if (remaining > 0) {
-    const seg = document.createElement("span");
-    seg.className = "waterfall-seg waterfall-retained";
-    seg.style.width = `${percent(remaining)}%`;
-    seg.title = `Retained: ${fmt(remaining)}`;
-    bar.append(seg);
+    segments.push({ label: "Retained", paid: remaining, pct: percent(remaining), color: "", retained: true });
   }
+  segments.forEach((segment, index) => {
+    let node = bar.children[index];
+    if (!node) {
+      node = document.createElement("span");
+      bar.append(node);
+    }
+    node.className = segment.retained ? "waterfall-seg waterfall-retained" : "waterfall-seg";
+    node.style.width = `${segment.pct}%`;
+    node.style.background = segment.color;
+    node.title = `${segment.label}: ${fmt(segment.paid)}`;
+  });
+  while (bar.children.length > segments.length) bar.lastElementChild.remove();
 
   const legend = $("#waterfall-legend");
   legend.innerHTML = "";
@@ -1072,7 +1249,9 @@ function updateSummary() {
 
 function updateModeUI() {
   document.querySelectorAll("[data-mode]").forEach((button) => {
-    button.classList.toggle("active", button.dataset.mode === state.mode);
+    const active = button.dataset.mode === state.mode;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
   });
   setText("waterfall-title", state.mode === "team" ? "Team payroll waterfall" : "Your waterfall");
 }
@@ -1088,6 +1267,7 @@ function renderDisconnected() {
   setText("approval-unit", "(" + state.symbol + ")");
   if (document.activeElement !== $("#sample-input")) $("#sample-input").value = String(state.samplePaycheck);
   setText("allowance-pill", "Allowance —");
+  setText("allowance-status", "");
   setText("split-count", "0 splits");
   setText("total-saved", "0.00");
   setText("total-retained", "0.00");
@@ -1158,6 +1338,12 @@ function renderFaucet() {
     btn.textContent = "—";
     return;
   }
+  const phase = state.latestIncome?.phase;
+  if (phase === 'signing' || phase === 'submitted') {
+    btn.disabled = true;
+    btn.textContent = phase === 'signing' ? 'In wallet…' : 'Submitted';
+    return;
+  }
 
   const now = Math.floor(Date.now() / 1000);
   const wait = state.nextFaucetAt - now;
@@ -1210,6 +1396,7 @@ function renderActivity() {
   }
 
   if (!state.groups.length && !state.skips.length) {
+    list.dataset.latestRun = "";
     list.innerHTML = `
       <div class="empty">
         <span class="empty-mark">◎</span>
@@ -1220,6 +1407,10 @@ function renderActivity() {
   }
 
   list.innerHTML = "";
+  const newest = state.groups[0];
+  const latestRun = newest ? [newest.txHash, newest.originHash, newest.logIndex].join(":") : "";
+  const hasNewRun = list.dataset.latestRun !== undefined && list.dataset.latestRun !== latestRun;
+  list.dataset.latestRun = latestRun;
 
   if (splitCount > 0) {
     const summary = document.createElement("div");
@@ -1231,6 +1422,7 @@ function renderActivity() {
   for (const group of state.groups.slice(0, 10)) {
     const wrapper = document.createElement("div");
     wrapper.className = "activity-group";
+    if (group === newest && hasNewRun) wrapper.classList.add("motion-enter");
 
     const head = document.createElement("div");
     head.className = "activity-group-head";
@@ -1540,6 +1732,7 @@ function skipReason(reason) {
 function bucketFromEditor(bucket) {
   const active = Boolean(bucket.active);
   let payee = bucket.payee.trim();
+  if (!payee && bucket.destination === 'aave') throw new Error('Finish Aave setup before saving this destination.');
   if (!active && !payee) payee = ZERO;
   if (!payee) throw new Error("Every active bucket needs a payee.");
   const parsedPayee = getAddress(payee);
@@ -1570,6 +1763,81 @@ function readBucketAmounts(bucket) {
   return { fixedAmount, bps: Number(rate) };
 }
 
+function reviewFacts() {
+  return [
+    ['Asset', state.symbol],
+    ['Workspace', state.demoMode ? 'Local simulation' : networkName()],
+    ...(!state.demoMode && state.account ? [['Wallet', state.account]] : []),
+  ];
+}
+
+function reviewWalletIsCurrent(signer) {
+  if (!state.busy && signer === state.signer) return true;
+  toast('The workspace changed. Review your selection again.', true);
+  return false;
+}
+
+function reviewSavingsSetup({ trigger, step, adapter }) {
+  const creating = step === 'create';
+  return actionReview.open({
+    trigger,
+    title: creating ? 'Create an Aave adapter?' : 'Enable Aave supply?',
+    description: creating
+      ? 'This creates the adapter for your wallet and asset. You can enable it in the next step.'
+      : 'This links the verified adapter to your waterfall. Save the destination and its amount after enabling it.',
+    facts: [
+      ...reviewFacts(),
+      [useLocal ? 'Mock pool' : 'Aave V3 pool', deployment.modules.aavePool],
+      ...(!creating ? [['Adapter', adapter]] : []),
+    ],
+    note: useLocal ? 'This workspace uses a mock reserve for local testing.'
+      : 'When income is routed to this destination, your wallet receives aTokens. The supply rate varies.',
+    confirm: 'Continue to wallet',
+  });
+}
+
+async function reviewTemplate(trigger, preset) {
+  const { signer, dirty, buckets, symbol } = state;
+  const proRata = preset === 'balanced' || preset === 'emergency';
+  const draft = JSON.stringify(buckets);
+  const confirmed = await actionReview.open({
+    trigger,
+    title: 'Preview ' + trigger.textContent.trim(),
+    description: dirty ? 'Applying this template replaces the destinations in your unsaved draft.' : 'Review the example allocations before adding them to your draft.',
+    facts: [['Asset', symbol], ['Allocation', proRata ? 'Share of available budget' : 'By priority']],
+    rows: PRESETS[preset].map(({ label, fixed, bps, active }) => ({
+      label,
+      address: 'Example recipient',
+      terms: Number(fixed) > 0 ? `${fixed} ${symbol} fixed` : `${bps}%`,
+      active,
+    })),
+    note: state.demoMode ? 'Run a sample income to see the result.'
+      : 'Edit the example recipients and amounts before saving.',
+    confirm: 'Apply to draft',
+  });
+  if (!confirmed || !reviewWalletIsCurrent(signer)) return false;
+  if (JSON.stringify(state.buckets) === draft) return true;
+  toast('The draft changed. Preview the template again.', true);
+  return false;
+}
+
+function saveReviewRows(buckets) {
+  const percentageBase = state.allocationMode === 1 ? 'of available budget' : 'of income';
+  return buckets.map(({ payee, fixedAmount, bps, active }, index) => {
+    const draft = state.buckets[index];
+    const savings = bucketDestination(draft) === 'aave';
+    const label = draft.label?.trim() || (savings ? 'Aave V3 supply' : 'Wallet transfer');
+    const fixed = fixedAmount > 0n ? `${formatUnits(fixedAmount, state.decimals)} ${state.symbol} fixed` : '';
+    const rate = bps > 0 ? `${bps / 100}% ${percentageBase}` : '';
+    return {
+      label: savings && label !== 'Aave V3 supply' ? `${label} · Aave V3 supply` : label,
+      address: payee === ZERO ? 'No recipient' : payee,
+      terms: [fixed, rate].filter(Boolean).join(' + '),
+      active,
+    };
+  });
+}
+
 async function saveRule(event) {
   event.preventDefault();
   if (!state.signer) {
@@ -1581,14 +1849,24 @@ async function saveRule(event) {
   clearRuleError();
 
   let buckets;
+  let savingsPayee;
   try {
     if (!state.buckets.length) throw new Error("Add at least one destination.");
     buckets = state.buckets.map(bucketFromEditor);
+    if (buckets.some(bucket => bucket.payee.toLowerCase() === SAMPLE_SAVINGS_DESTINATION)) {
+      throw new Error("Replace the simulated Aave destination with a configured adapter before saving.");
+    }
+    const savingsBuckets = state.buckets.filter(bucket => bucketDestination(bucket) === 'aave');
+    if (savingsBuckets.length > 1) throw new Error("Use one Aave destination per asset.");
+    savingsPayee = savingsBuckets[0]?.payee;
     if (chainId !== 31337 && buckets.some(bucket => bucket.active && SAMPLE_PAYEES.has(bucket.payee.toLowerCase()))) {
       throw new Error("Replace the template’s sample addresses with your own recipients before saving.");
     }
     const totalBps = buckets.filter((bucket) => bucket.active).reduce((sum, bucket) => sum + bucket.bps, 0);
     if (totalBps > 10_000) throw new Error("Active percentages cannot exceed 100%.");
+    if (state.allocationMode === 1 && buckets.some(bucket => bucket.active && bucket.fixedAmount > 0n)) {
+      throw new Error("Pro-rata mode uses percentages. Clear the fixed amounts or save priority mode first.");
+    }
   } catch (err) {
     showRuleError(err.message);
     toast(err.message, true);
@@ -1596,12 +1874,43 @@ async function saveRule(event) {
   }
 
   const button = $("#save-rule");
+  const { signer, split, account, provider, injected, ruleVersion, allocationMode, draftAllocationMode } = state;
+  const ids = state.buckets.map((bucket, index) => bucket.identityPayee === buckets[index].payee.toLowerCase()
+    && /^\d+$/.test(bucket.id || '') ? BigInt(bucket.id) : 0n);
+  const draft = JSON.stringify(state.buckets);
+  const confirmed = await actionReview.open({
+    trigger: event.submitter || button,
+    title: 'Review destinations',
+    description: 'Check the recipient addresses and allocation order before saving your waterfall.',
+    facts: [...reviewFacts(), ['Allocation', allocationMode === 1 ? 'Share of available budget' : 'By priority']],
+    rows: saveReviewRows(buckets),
+    note: draftAllocationMode !== allocationMode
+      ? 'These destinations use the current mode shown above. Save your pending mode change in Allocation settings.'
+      : 'Saving updates the rules for future runs. Set a spending limit separately to let the waterfall route income.',
+    confirm: 'Continue to wallet',
+  });
+  if (!confirmed || !reviewWalletIsCurrent(signer)) return;
+  if (state.syncStatus !== 'ready' || state.ruleVersion !== ruleVersion || state.allocationMode !== allocationMode
+      || state.draftAllocationMode !== draftAllocationMode || JSON.stringify(state.buckets) !== draft) {
+    showRuleError('The saved plan or draft changed. Review the current destinations again.');
+    return;
+  }
+
   state.busy = true;
   $("#rule-form").inert = true;
   setBusy(button, "Saving…", true);
-  const { signer, split } = state;
   try {
-    const ids = state.buckets.map(b=>/^\d+$/.test(b.id||'') ? BigInt(b.id) : 0n);
+    const at = { blockTag: await provider.send('eth_blockNumber', []) };
+    const [version, mode] = await Promise.all([
+      split.ruleVersion(account, deployment.token, at),
+      split.allocationModes(account, deployment.token, at),
+      savingsPayee ? incomeModules.verifySavingsDestination(savingsPayee) : undefined,
+    ]);
+    if (version !== BigInt(ruleVersion) || Number(mode) !== allocationMode) {
+      throw new Error('The saved rule changed. Refresh the workspace before saving.');
+    }
+    await verifyWalletContext(injected, chainId, account);
+    if (signer !== state.signer) return;
     const tx = await split.connect(signer).setBucketsWithIds(deployment.token, buckets, ids);
     clearRuleError();
     toast("Destination changes submitted.", false, tx.hash);
@@ -1633,46 +1942,113 @@ function readAllowanceAmount() {
 }
 
 async function approve() {
-  if (state.demoMode) {
-    try { state.allowance = readAllowanceAmount(); renderAllowance(); }
-    catch (error) { toast(error.message, true); }
+  if (state.busy || (!state.demoMode && !state.signer)) return;
+  if (!state.demoMode && state.syncStatus !== "ready") { toast("Refresh the onchain plan before approving.", true); return; }
+  let requested;
+  try { requested = readAllowanceAmount(); }
+  catch (error) { showAllowanceStatus(error.message); return; }
+  await reviewAllowance(requested, $("#approve-btn"));
+}
+
+async function reviewAllowance(requested, button) {
+  const { allowance, signer, demoMode, decimals, symbol } = state;
+  const revoking = requested === 0n;
+  const confirmed = await actionReview.open({
+    trigger: button,
+    title: revoking ? 'Revoke spending permission?' : 'Review spending limit',
+    description: revoking
+      ? 'Setting the allowance to zero prevents the waterfall from pulling more funds under this permission. Your saved destinations stay available.'
+      : 'This is the maximum the split contract can pull from your wallet for this asset.',
+    facts: [
+      ...reviewFacts(),
+      ['Last known allowance', allowance === MaxUint256 ? 'Unlimited' : `${formatUnits(allowance, decimals)} ${symbol}`],
+      ['Requested allowance', `${formatUnits(requested, decimals)} ${symbol}`],
+      ...(!demoMode ? [['Spending contract', deployment.split]] : []),
+    ],
+    note: demoMode ? 'This changes the simulator in this tab.'
+      : revoking ? 'The transaction status appears below the spending controls.'
+        : 'If a different limit is already set, your wallet may ask you to clear it before approving the new one.',
+    confirm: demoMode ? (revoking ? 'Revoke demo allowance' : 'Set demo allowance') : 'Continue to wallet',
+  });
+  if (!confirmed || !reviewWalletIsCurrent(signer)) return;
+  if (demoMode) {
+    state.allowance = requested;
+    renderAllowance();
+    showAllowanceStatus(revoking ? 'Demo allowance revoked.' : 'Demo allowance updated.');
     return;
   }
-  if (!state.signer || state.busy) return;
-  if (state.syncStatus !== "ready") { toast("Refresh the onchain plan before approving.", true); return; }
+  await changeAllowance(requested, button);
+}
+
+function showAllowanceStatus(message, hash) {
+  const status = $("#allowance-status");
+  status.textContent = message;
+  const href = hash ? txUrl(hash) : null;
+  if (!href) return;
+  const link = document.createElement("a");
+  link.className = "trace-link";
+  link.href = href;
+  link.target = "_blank";
+  link.rel = "noreferrer";
+  link.textContent = "View transaction ↗";
+  status.append(" ", link);
+}
+
+async function changeAllowance(requested, button) {
   state.busy = true;
-  const button = $("#approve-btn");
-  const { token, account, signer } = state;
-  let clearReceipt;
-  setBusy(button, "Approving…", true);
+  const { token, account, signer, provider, injected } = state;
+  const isCurrent = () => signer === state.signer && provider === state.provider;
+  let lastReceipt;
+  let clearedForReplacement = false;
+  setBusy(button, requested === 0n ? "Revoking…" : "Approving…", true);
+  showAllowanceStatus("Checking the onchain allowance…");
+
+  async function requireWallet() {
+    await verifyWalletContext(injected, chainId, account);
+    if (!isCurrent()) throw new Error("The wallet changed. Connect again to update its allowance.");
+  }
+
   try {
-    const amount = readAllowanceAmount();
-    if (amount === state.allowance) { toast("This amount is already approved."); return; }
-    await verifyWalletContext(state.injected, chainId, account);
-    if (signer !== state.signer) return;
-    if (state.allowance > 0n) {
-      toast("Your wallet will ask to clear the current allowance, then approve the new amount.");
-      const reset = await token.connect(signer).approve(deployment.split, 0);
-      clearReceipt = await reset.wait();
-      if (signer !== state.signer) return;
-      await verifyWalletContext(state.injected, chainId, account);
-      if (signer !== state.signer) return;
-    }
-    const tx = await token.connect(signer).approve(deployment.split, amount);
-    const receipt = await tx.wait();
-    if (signer !== state.signer) return;
+    await requireWallet();
+    const { allowance, blockNumber, receipt } = await updateWalletAllowance({
+      provider, token, account, splitAddress: deployment.split, requested, afterBlock: walletBlockFloor,
+      onReset: () => showAllowanceStatus("Clear the current allowance in your wallet before approving the new amount."),
+      submit: async amount => {
+        clearedForReplacement = amount > 0n && !!lastReceipt;
+        await requireWallet();
+        const tx = await token.connect(signer).approve(deployment.split, amount);
+        if (isCurrent()) showAllowanceStatus("Allowance transaction submitted. Waiting for confirmation…", tx.hash);
+        const receipt = await tx.wait();
+        if (receipt?.status === 1) {
+          lastReceipt = receipt;
+          clearedForReplacement = false;
+        }
+        return receipt;
+      },
+    });
+    if (!isCurrent()) return;
+    state.allowance = allowance;
     lastHealth = null;
-    toast("Allowance confirmed.", false, tx.hash);
-    await refreshAll({ afterBlock: receipt.blockNumber });
-  } catch (err) {
-    if (signer === state.signer) {
-      if (clearReceipt) await refreshAll({ afterBlock: clearReceipt.blockNumber });
-      toast(clearReceipt ? "The old allowance was cleared. " + humanError(err) : humanError(err), true);
+    if (!receipt) {
+      showAllowanceStatus(requested === 0n ? "The onchain allowance is already zero." : "The requested allowance is already set.");
+    } else if (allowance === requested) {
+      showAllowanceStatus(requested === 0n ? "Onchain allowance revoked." : "Onchain allowance confirmed.", receipt.hash);
+    } else {
+      showAllowanceStatus("Transaction confirmed. Current allowance is " + formatUnits(allowance, state.decimals)
+        + " " + state.symbol + ".", receipt.hash);
+    }
+    await refreshAll({ afterBlock: blockNumber });
+  } catch (error) {
+    if (isCurrent()) {
+      const prefix = !lastReceipt ? "" : clearedForReplacement
+        ? "The old allowance was cleared. " : "An allowance transaction confirmed. ";
+      showAllowanceStatus(prefix + humanError(error), lastReceipt?.hash);
+      if (lastReceipt) await refreshAll({ afterBlock: lastReceipt.blockNumber });
     }
   } finally {
     state.busy = false;
     setBusy(button, "", false);
-    if (state.signer) renderAllowance();
+    renderAllowance();
   }
 }
 
@@ -1716,6 +2092,19 @@ function runDemoIncome(silent = false) {
 }
 
 async function pauseAll() {
+  if (state.busy || (!state.demoMode && (!state.signer || !state.savedActive))) return;
+  const { signer, split, account, provider, injected, ruleVersion, savedActive } = state;
+  const confirmed = await actionReview.open({
+    trigger: $("#pause-rule"),
+    title: 'Pause all destinations?',
+    description: state.demoMode ? 'All destinations in this sample plan will become inactive.'
+      : 'All saved destinations for this asset will become inactive. Your spending allowance and any unsaved draft stay available.',
+    facts: [...reviewFacts(), ['Active destinations', String(state.demoMode ? state.buckets.filter(bucket => bucket.active).length : savedActive)]],
+    note: state.demoMode ? 'Turn destinations back on to resume the sample.'
+      : 'To resume routing, turn destinations back on and save the plan.',
+    confirm: state.demoMode ? 'Pause sample plan' : 'Continue to wallet',
+  });
+  if (!confirmed || !reviewWalletIsCurrent(signer)) return;
   if (state.demoMode) {
     state.buckets = state.buckets.map((bucket) => ({ ...bucket, active: false }));
     state.dirty = true;
@@ -1724,15 +2113,16 @@ async function pauseAll() {
     toast("Demo rule paused. All buckets are inactive.");
     return;
   }
-  if (!state.signer || state.busy) return;
-
-  const { signer, split, account, provider } = state;
   state.busy = true;
   try {
     const at = { blockTag: await provider.send('eth_blockNumber', []) };
-    const raw = await split.getBuckets(account, deployment.token, at);
+    const [raw, version] = await Promise.all([
+      split.getBuckets(account, deployment.token, at),
+      split.ruleVersion(account, deployment.token, at),
+    ]);
+    if (version !== BigInt(ruleVersion)) throw new Error('The saved plan changed. Refresh it before pausing destinations.');
     const buckets = raw.map(({ payee, fixedAmount, bps }) => ({ payee, fixedAmount, bps, active: false }));
-    await verifyWalletContext(state.injected, chainId, account);
+    await verifyWalletContext(injected, chainId, account);
     if (signer !== state.signer || !buckets.length) return;
     const tx = await split.connect(signer).setBuckets(deployment.token, buckets);
     const receipt = await tx.wait();
@@ -1749,38 +2139,20 @@ async function pauseAll() {
 }
 
 async function revokeAllowance() {
-  if (state.demoMode) {
-    state.allowance = 0n;
-    renderAllowance();
-    toast("Demo allowance revoked.");
-    return;
-  }
-  if (!state.signer || state.busy) return;
-
-  state.busy = true;
-  const { signer } = state;
-  try {
-    const tx = await state.token.connect(signer).approve(deployment.split, 0);
-    const receipt = await tx.wait();
-    if (signer !== state.signer) return;
-    lastHealth = null;
-    toast("Allowance revoked. The plan cannot spend this asset.", false, tx.hash);
-    await refreshAll({ afterBlock: receipt.blockNumber });
-  } catch (err) {
-    toast(humanError(err), true);
-  } finally {
-    state.busy = false;
-  }
+  if (state.busy || (!state.demoMode && !state.signer) || state.allowance === 0n) return;
+  await reviewAllowance(0n, $("#revoke-allowance"));
 }
 
 function runNow() {
   if (state.demoMode) { runDemoIncome(); return; }
-  if (!state.signer || state.busy || state.syncStatus !== "ready" || state.dirty || !state.savedActive) return;
+  if (!state.signer) return;
+  if (!manualPayment.hasPending() && (state.busy || state.syncStatus !== "ready" || state.dirty || !state.savedActive)) return;
   manualPayment.open($("#sample-input").value);
 }
 
 async function readManualQuote(ctx, amount) {
-  if (!ctx.signer || ctx.signer !== state.signer || state.dirty || policyDirty || state.draftAllocationMode !== state.allocationMode) {
+  if (!ctx.signer || ctx.signer !== state.signer || state.syncStatus !== "ready" || state.dirty || policyDirty
+    || state.draftAllocationMode !== state.allocationMode) {
     throw new Error("Save your changes and check the current plan before reviewing a payment.");
   }
   const at = { blockTag: await ctx.provider.send('eth_blockNumber', []) };
@@ -1797,26 +2169,106 @@ async function readManualQuote(ctx, amount) {
   return quote;
 }
 
-async function submitManualPayment({ ctx, amount, quote }, isCurrent) {
+async function submitManualPayment({ ctx, amount, quote }, isCurrent, onSigning) {
   if (state.busy) throw new Error('Finish the current wallet action first.');
   state.busy = true;
   try {
     const latest = await readManualQuote(ctx, amount);
-    if (paymentQuoteKey(quote) !== paymentQuoteKey(latest)) return latest;
+    if (paymentQuoteKey(quote) !== paymentQuoteKey(latest)) return { quote: latest };
+    const request = await ctx.split.runSplit.populateTransaction(ctx.token, amount);
+    const startBlock = await ctx.provider.getBlockNumber();
     await verifyWalletContext(ctx.injected, chainId, ctx.account);
     if (!isCurrent(ctx) || state.dirty || policyDirty || state.draftAllocationMode !== state.allocationMode) {
       throw new Error('Your wallet or plan changed. Preview the payment again.');
     }
-    const tx = await ctx.split.connect(ctx.signer).runSplit(ctx.token, amount);
-    toast("New payment submitted.", false, tx.hash);
-    const receipt = await tx.wait();
-    if (isCurrent(ctx)) {
-      toast("Payment confirmed. Review the actual payout in History.", false, tx.hash);
-      await refreshAll({ afterBlock: receipt.blockNumber });
-    }
+    onSigning();
+    // Track the wallet's broadcast hash before an RPC has indexed the transaction.
+    const hash = await ctx.signer.sendUncheckedTransaction(request);
+    return { transaction: {
+      hash,
+      async wait(confirmations, timeout) {
+        const response = await ctx.provider.getTransaction(hash);
+        return response
+          ? response.replaceableTransaction(startBlock).wait(confirmations, timeout)
+          : ctx.provider.waitForTransaction(hash, confirmations, timeout);
+      },
+    } };
   } finally {
     state.busy = false;
   }
+}
+
+const claimHashPattern = /^0x[0-9a-f]{64}$/i;
+
+function claimContext() {
+  return {
+    account: state.account, signer: state.signer, provider: state.provider, split: state.split,
+    amount: state.faucetAmount, decimals: state.decimals, symbol: state.symbol,
+  };
+}
+
+function claimStorageKey({ account }) {
+  return ['paydaysplit.test-income', chainId, deployment.token, account].join(':').toLowerCase();
+}
+
+function saveFaucetTracker(tracked, clear = false) {
+  try {
+    const key = claimStorageKey(tracked);
+    if (clear) sessionStorage.removeItem(key);
+    else sessionStorage.setItem(key, JSON.stringify({
+      hash: tracked.hash, startBlock: tracked.startBlock, amount: String(tracked.amount),
+    }));
+  } catch { /* Storage can be disabled. The active tab still tracks this claim. */ }
+}
+
+function resumeFaucetClaim() {
+  if (!state.demoToken || !state.signer || state.latestIncome) return;
+  const ctx = claimContext();
+  let saved;
+  try { saved = JSON.parse(sessionStorage.getItem(claimStorageKey(ctx))); }
+  catch { return; }
+  if (!saved || !claimHashPattern.test(saved.hash) || !Number.isSafeInteger(saved.startBlock) || saved.startBlock < 0
+      || typeof saved.amount !== 'string' || !/^[1-9]\d{0,28}$/.test(saved.amount)) return;
+  const tracked = { ...ctx, hash: saved.hash, startBlock: saved.startBlock, amount: BigInt(saved.amount), phase: 'submitted' };
+  state.latestIncome = tracked;
+  void checkFaucetConfirmation(tracked);
+}
+
+function isCurrentFaucetClaim(tracked) {
+  return state.latestIncome === tracked && state.signer === tracked.signer;
+}
+
+function renderFaucetClaim() {
+  const tracked = state.latestIncome;
+  const progress = $('#faucet-progress');
+  const phase = tracked?.phase ?? '';
+  const messages = {
+    signing: 'Confirm the test income in your wallet.',
+    submitted: tracked?.checking ? 'Test income submitted. Checking the source transaction…'
+      : 'Test income submitted. Use Check confirmation to look for its receipt.',
+    origin: tracked?.income ? `Income confirmed for ${formatUnits(tracked.income.amount, tracked.decimals)} ${tracked.symbol}. Waiting for the destination result.` : '',
+    slow: 'Income confirmed. The destination result is still unverified.',
+    rejected: tracked?.message,
+    replaced: 'The wallet replaced or cancelled this claim.',
+    reverted: 'The source transaction reverted.',
+    unverified: 'The transaction confirmed, but the expected test-income transfer could not be verified.',
+    confirmed: tracked?.message,
+  };
+  progress.dataset.phase = phase;
+  progress.dataset.tone = phase === 'confirmed' ? 'success'
+    : ['rejected', 'replaced', 'reverted', 'unverified', 'slow'].includes(phase) ? 'warning' : '';
+  setText('faucet-progress', messages[phase] || '');
+  const href = tracked?.hash ? txUrl(tracked.hash) : '';
+  const source = $('#faucet-source');
+  source.hidden = !href;
+  if (href) source.href = href;
+  else source.removeAttribute('href');
+  $('#faucet-hash').hidden = Boolean(href) || !tracked?.hash;
+  setText('faucet-hash', !href ? tracked?.hash || '' : '');
+  $('#faucet-trace').hidden = !tracked?.income;
+  $('#faucet-check').hidden = !['submitted', 'slow'].includes(phase) || Boolean(tracked?.checking || tracked?.following);
+  renderFaucet();
+  renderWorkspace();
 }
 
 async function claim() {
@@ -1824,47 +2276,118 @@ async function claim() {
     runDemoIncome();
     return;
   }
-  if (!state.signer || state.busy || !state.demoToken || state.syncStatus !== "ready") return;
+  if (!state.signer || state.busy || !state.demoToken || state.syncStatus !== "ready" || $('#faucet-btn').disabled) return;
+  const { token, injected } = state;
+  const tracked = { ...claimContext(), phase: 'signing' };
+  state.latestIncome = tracked;
   state.busy = true;
-  const button = $("#faucet-btn");
-  const { account, signer, token } = state;
-  setBusy(button, "Claiming…", true);
-
+  renderFaucetClaim();
   try {
-    const tx = await token.connect(signer).faucet();
-    toast("Test income submitted. Waiting for confirmation…", false, tx.hash);
-    const receipt = await tx.wait();
-    if (signer !== state.signer) return;
-    const [income] = incomeTransfers(receipt, receipt.hash.toLowerCase(), account, deployment.token);
-    const tracked = { signer, income };
-    state.latestIncome = tracked;
-    $("#faucet-trace").hidden = false;
-    setText("faucet-progress", "Income confirmed. Waiting for Reactive to deliver the callback.");
-    await refreshAll({ afterBlock: receipt.blockNumber });
-    void followIncome(tracked);
+    const request = await token.faucet.populateTransaction();
+    tracked.startBlock = await tracked.provider.getBlockNumber();
+    await verifyWalletContext(injected, chainId, tracked.account);
+    if (!isCurrentFaucetClaim(tracked)) return;
+    const hash = await tracked.signer.sendUncheckedTransaction(request);
+    if (!claimHashPattern.test(hash)) throw new Error('The wallet did not return a valid transaction hash.');
+    Object.assign(tracked, { hash, phase: 'submitted' });
+    saveFaucetTracker(tracked);
   } catch (err) {
-    if (signer === state.signer) toast(humanError(err), true);
+    if (isCurrentFaucetClaim(tracked)) {
+      const rejected = err.code === 'ACTION_REJECTED' || Number(err.code) === 4001;
+      Object.assign(tracked, { phase: 'rejected', message: rejected ? 'The test-income request was declined in your wallet.' : humanError(err) });
+    }
   } finally {
     state.busy = false;
-    setBusy(button, "", false);
-    if (signer === state.signer) { renderFaucet(); renderWorkspace(); }
+    if (isCurrentFaucetClaim(tracked)) {
+      if (tracked.phase === 'submitted') void checkFaucetConfirmation(tracked);
+      else renderFaucetClaim();
+    }
   }
 }
 
-async function followIncome(tracked) {
-  const isCurrent = () => state.latestIncome === tracked && state.signer === tracked.signer;
-  for (let check = 0; check < 10 && isCurrent(); check++) {
-    const groups = await loadActivity({ publish: false });
-    if (!isCurrent()) return;
-    const payout = matchedPayout(groups, tracked.income);
-    if (payout) {
-      setText("faucet-progress", `Callback confirmed. ${formatUnits(payout.totalRouted, state.decimals)} ${state.symbol} routed.`);
-      await refreshAll({ afterBlock: payout.blockNumber });
+async function checkFaucetConfirmation(tracked, timeout = 12_000) {
+  if (!isCurrentFaucetClaim(tracked) || tracked.phase !== 'submitted' || tracked.checking) return;
+  tracked.checking = true;
+  renderFaucetClaim();
+  try {
+    const { provider } = tracked;
+    const hash = tracked.hash;
+    let receipt = await provider.getTransactionReceipt(hash);
+    let expectedHash = hash;
+    let replaced = false;
+    if (!receipt) {
+      try {
+        const tx = await provider.getTransaction(hash);
+        receipt = tx ? await tx.replaceableTransaction(tracked.startBlock).wait(1, timeout)
+          : await provider.waitForTransaction(hash, 1, timeout);
+      } catch (error) {
+        receipt = error.receipt;
+        if (error.code === 'TRANSACTION_REPLACED' && claimHashPattern.test(error.hash)) {
+          expectedHash = error.hash;
+          replaced = error.cancelled !== false || error.reason !== 'repriced';
+        }
+      }
+    }
+    if (!isCurrentFaucetClaim(tracked) || receipt?.hash?.toLowerCase() !== expectedHash.toLowerCase()
+        || ![0, 1].includes(receipt.status)) return;
+    tracked.hash = expectedHash;
+    if (replaced || receipt.status === 0) {
+      tracked.phase = replaced ? 'replaced' : 'reverted';
+      saveFaucetTracker(tracked, true);
+      await refreshAll({ afterBlock: receipt.blockNumber });
       return;
     }
-    await sleep(3000);
+    try {
+      tracked.income = claimedIncome(receipt, expectedHash, tracked.account, deployment.token, tracked.amount);
+      tracked.phase = 'origin';
+      saveFaucetTracker(tracked);
+    } catch {
+      tracked.phase = 'unverified';
+      saveFaucetTracker(tracked, true);
+    }
+    const refresh = refreshAll({ afterBlock: receipt.blockNumber });
+    renderFaucetClaim();
+    await refresh;
+    if (isCurrentFaucetClaim(tracked) && tracked.income) void followIncome(tracked);
+  } catch {
+    // Keep the submitted hash available through temporary RPC failures.
+  } finally {
+    tracked.checking = false;
+    if (isCurrentFaucetClaim(tracked)) renderFaucetClaim();
   }
-  if (isCurrent()) setText("faucet-progress", "The payout is still unconfirmed. Use Income trace to check its source and callback.");
+}
+
+async function followIncome(tracked, attempts = 10) {
+  if (!isCurrentFaucetClaim(tracked) || tracked.following || !tracked.income) return;
+  tracked.following = true;
+  renderFaucetClaim();
+  const destinationKey = incomeKeys(tracked.account, deployment.token, tracked.income).destination;
+  try {
+    for (let check = 0; check < attempts && isCurrentFaucetClaim(tracked); check++) {
+      const groups = await loadActivity({ publish: false });
+      if (!isCurrentFaucetClaim(tracked)) return;
+      const payout = matchedPayout(groups, tracked.income);
+      const processed = payout && await tracked.split.processed(destinationKey, { blockTag: payout.blockNumber }).catch(() => false);
+      if (!isCurrentFaucetClaim(tracked)) return;
+      if (processed) {
+        const routed = formatUnits(payout.totalRouted, tracked.decimals);
+        const retained = formatUnits(payout.retained, tracked.decimals);
+        Object.assign(tracked, {
+          phase: 'confirmed', message: `Destination confirmed. ${routed} ${tracked.symbol} routed · ${retained} ${tracked.symbol} retained.`,
+        });
+        renderFaucetClaim();
+        await refreshAll({ afterBlock: payout.blockNumber });
+        return;
+      }
+      if (check + 1 < attempts) await sleep(3000);
+    }
+  } finally {
+    tracked.following = false;
+    if (isCurrentFaucetClaim(tracked)) {
+      if (tracked.phase !== 'confirmed') tracked.phase = 'slow';
+      renderFaucetClaim();
+    }
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -1960,12 +2483,47 @@ function wire() {
       toast(error.code === -32601 ? "This wallet manages access in the extension. Review the site permissions there, then reconnect." : humanError(error), true);
     } finally { state.busy = false; }
   });
-  $("#connect-top").addEventListener("click", connect);
-  $("#connect-hero").addEventListener("click", connect);
-  $("#disconnect").addEventListener("click", disconnect);
+  for (const selector of ['#connect-top', '#connect-workspace']) {
+    $(selector).addEventListener('click', event => void connect(event.currentTarget));
+  }
+  $('#connect-hero').addEventListener('click', event => {
+    if (state.demoMode) jumpTo('#dashboard');
+    else if (sessionDeploymentMissing) $('#open-deployment').click();
+    else if (assetProfile.invalid) jumpTo('#asset-select');
+    else if (!configured) location.assign($('#workspace-demo-link').href);
+    else void connect(event.currentTarget);
+  });
+  for (const selector of ['#disconnect', '#wallet-account-disconnect']) {
+    $(selector).addEventListener('click', () => {
+      if (state.busy) {
+        if ($('#wallet-account-dialog').open) setText('wallet-account-status', 'Finish the active wallet action before disconnecting.');
+        else toast('Finish the active wallet action before disconnecting.');
+        return;
+      }
+      disconnect();
+      if (selector === '#disconnect') $('#connect-workspace').focus({ preventScroll: true });
+      toast('Wallet disconnected from this workspace.');
+    });
+  }
+  $('#wallet-copy-address').addEventListener('click', async () => {
+    const session = walletSession;
+    if (!session) return;
+    try {
+      await navigator.clipboard.writeText(session.account);
+      if (walletSession === session) setText('wallet-account-status', 'Address copied.');
+    } catch {
+      if (walletSession === session) setText('wallet-account-status', 'Select the address above to copy it manually.');
+    }
+  });
   $("#rule-form").addEventListener("submit", saveRule);
   $("#approve-btn").addEventListener("click", approve);
   $("#faucet-btn").addEventListener("click", claim);
+  $('#faucet-check').addEventListener('click', () => {
+    const tracked = state.latestIncome;
+    if (!tracked) return;
+    if (tracked.phase === 'submitted') void checkFaucetConfirmation(tracked, 4_000);
+    if (tracked.phase === 'slow') void followIncome(tracked, 1);
+  });
   $("#faucet-trace").addEventListener("click", () => {
     const tracked = state.latestIncome;
     if (tracked && tracked.signer === state.signer) incomeTrace.open(tracked.income.hash, tracked.income.logIndex);
@@ -2000,10 +2558,13 @@ function wire() {
   });
 
   document.querySelectorAll("[data-mode]").forEach((button) => {
-    button.addEventListener("click", () => {
-      if (state.busy || (!state.demoMode && state.dirty && !window.confirm('Replace the current destination draft with this template?'))) return;
-      state.mode = button.dataset.mode;
-      state.buckets = clonePreset(state.mode === "team" ? "team" : "freelancer");
+    button.addEventListener("click", async () => {
+      const mode = button.dataset.mode;
+      if (state.busy || mode === state.mode) return;
+      const preset = mode === "team" ? "team" : "freelancer";
+      if (state.dirty && !await reviewTemplate(button, preset)) return;
+      state.mode = mode;
+      state.buckets = clonePreset(preset);
       state.samplePaycheck = state.mode === "team" && !wrappedAsset ? "5000" : defaultSample;
       $("#sample-input").value = String(state.samplePaycheck);
       $("#sample-input").removeAttribute('aria-invalid');
@@ -2027,10 +2588,11 @@ function wire() {
   });
 
   document.querySelectorAll("[data-preset]").forEach((button) => {
-    button.addEventListener("click", () => {
-      if (state.busy || (!state.demoMode && state.dirty && !window.confirm('Replace the current destination draft with this template?'))) return;
-      state.buckets = clonePreset(button.dataset.preset);
-      state.draftAllocationMode=['balanced','emergency'].includes(button.dataset.preset) ? 1 : 0;
+    button.addEventListener("click", async () => {
+      const preset = button.dataset.preset;
+      if (state.busy || !await reviewTemplate(button, preset)) return;
+      state.buckets = clonePreset(preset);
+      state.draftAllocationMode=['balanced','emergency'].includes(preset) ? 1 : 0;
       $("#allocation-mode").value=String(state.draftAllocationMode);
       state.dirty = true;
       renderBuckets();
@@ -2056,6 +2618,11 @@ function wire() {
   });
 
   $("#buckets-list").addEventListener("change", (event) => {
+    const destination = event.target.closest('select[data-destination]');
+    if (destination) {
+      setBucketDestination(Number(destination.dataset.destination), destination.value);
+      return;
+    }
     const input = event.target.closest("input[data-i]");
     if (!input || input.dataset.f !== "active") return;
     const index = Number(input.dataset.i);
@@ -2066,6 +2633,17 @@ function wire() {
   });
 
   $("#buckets-list").addEventListener("click", (event) => {
+    const savings = event.target.closest('[data-savings-action]');
+    if (savings) {
+      if (state.busy) return;
+      switch (savings.dataset.step) {
+        case 'connect': void connect(); break;
+        case 'unavailable': void incomeModules.refresh(); break;
+        case 'create':
+        case 'bind': void incomeModules.setupSavings(savings.dataset.step, savings); break;
+      }
+      return;
+    }
     const up = event.target.closest("[data-up]");
     if (up) {
       const index = Number(up.dataset.up);
@@ -2102,7 +2680,7 @@ function wire() {
     document.querySelector(".site-header").classList.toggle("scrolled", window.scrollY > 8);
   });
 
-  if (!state.demoMode) browserWallet.discover();
+  browserWallet.discover();
 
   setInterval(() => {
     if (state.account && state.demoToken) { renderFaucet(); renderWorkspace(); }
@@ -2147,6 +2725,7 @@ function hasWorkspaceDraft() {
 function boot() {
   wire();
   wireAssetPicker();
+  renderWalletControls();
   $("#approval-amount").value = defaultSample;
 
   setText(
@@ -2174,10 +2753,16 @@ function boot() {
   }
 
   if (!configured && !assetProfile.invalid) {
-    setText('connect-top', 'Open demo');
-    setText('connect-hero', 'Open demo');
-    $('#hero-demo').href = '#how';
-    setText('hero-demo', 'How it works');
+    setText('connect-hero', 'Try interactive demo');
+    setText('network-label', 'Demo available · testnet setup optional');
+    $('#hero-demo').href = '#proof';
+    setText('hero-demo', 'View testnet proof');
+  }
+  if (sessionDeploymentMissing) {
+    setText('connect-hero', 'Open testnet workspace');
+    setText('network-label', 'Testnet configuration required');
+  } else if (usingSessionDeployment) {
+    setText('network-label', 'Verified deployment · ' + networkName());
   }
 
   if (state.demoMode) {
@@ -2190,13 +2775,10 @@ function boot() {
     state.demoToken = true;
     state.buckets = clonePreset("freelancer");
 
-    $('#hero-demo').href = '#how';
-    setText('hero-demo', 'How it works');
-    setText("network-label", "Demo mode");
-    setText("wallet-label", "Demo mode");
-    $("#wallet-chip").classList.add("connected");
-    setText("connect-top", "Demo");
-    setText("connect-hero", "See a sample split ↗");
+    $('#hero-demo').href = '#proof';
+    setText('hero-demo', 'View testnet proof');
+    setText("network-label", "Simulation · no wallet required");
+    setText("connect-hero", "Open sample workspace");
 
     updateModeUI();
     renderBuckets();

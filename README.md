@@ -1,8 +1,18 @@
 # PaydaySplit — Reactive Income Waterfall
 
-> **Rent first. Tax reserved. Savings funded. The rest stays yours.**
->
+PaydaySplit routes incoming stablecoin payments to fixed and percentage allocations for rent, tax and savings. The remainder stays in the receiving wallet.
+
 > Reactive Omni Buildathon · Track 2 — *Set It and Forget It*
+
+## 体验产品
+
+在 `web` 运行 `npm ci` 和 `npm run dev`，浏览器打开 `http://127.0.0.1:5173`。
+
+- **试用分账**：点击 **Try interactive demo**，改一笔收入的金额或去向，再点 **Run sample income**。演示会列出分账金额和留存金额，无需连接钱包。
+- **核验公开回执**：点击 **View testnet proof**，查看 Sepolia 到账、Lasna 请求回调和 Sepolia 实际分账。回执来自下方有日期的单桶测试网验收。
+- **操作自己的测试网计划**：在工作台用 **Open testnet workspace** 加载已部署的合约配置。连接测试钱包后，查看已保存的规则、余额和授权，再预演付款。手动付款发出后可凭交易哈希重新查看确认状态。[部署与操作步骤](docs/workspace/README.md)
+
+当前仓库提供本地演示和测试网配置入口。读取 [部署边界与商用上线条件](docs/SECURITY.md#production-launch) 可查看审计、当前版本复测和付款保护的进度。
 
 ## 最小分账闭环
 
@@ -74,13 +84,13 @@ Foundry 验收覆盖正常触发、错误事件拒绝、两端重放、跨日额
 
 ![Payday receipt](docs/receipt-example.png)
 
-> **v9 update:** the [income modules](docs/income-modules/README.md) add bounded retries, native ETH receiving through WETH, Aave V3 savings, withdrawal cooldowns and test USDC collection. The [dashboard workspace](docs/workspace/README.md) ties asset plans and payout evidence together. The v9 video below shows the current workspace.
+> **v9 update:** the [income modules](docs/income-modules/README.md) add bounded retries, native ETH receiving through WETH, Aave V3 savings, withdrawal cooldowns and test USDC collection. The [dashboard workspace](docs/workspace/README.md) ties asset plans and payout evidence together. The demo video below shows the v9 three-destination workflow in the earlier interface.
 
 ## English quick read
 
 **PaydaySplit is a non-custodial income waterfall.** Every payment in a configured ERC-20 is routed by priority in one Reactive callback: the default preset puts fixed bills first (rent, salaries), then percentage buckets (tax, savings, bonus), and the remainder stays in the wallet. Up to 8 buckets, versioned rules, per-bucket failure isolation, and a manual recovery path.
 
-- **109 Foundry tests** and **53 frontend tests**, covering allocation, replay, cumulative budgets, diagnostics, receipt-based recovery, wallet and deployment selection, and payment review.
+- **Foundry and frontend coverage** for allocation, replay, cumulative budgets, diagnostics, retry capacity, wallet and deployment selection, and payment receipts.
 - **Verified on Sepolia and Lasna.** The single-bucket testnet run paid 300 dUSDC and retained 700 dUSDC from a 1,000 dUSDC test income. [Testnet proof](deployments/paydaysplit-sepolia-lasna.evidence.json) · [Local full loop](deployments/31337.evidence.json)
 - **No-wallet demo:** `cd web && npm install && npm run dev`, then open `/?demo=1`.
 - **Local full loop:** `pwsh ./script/local-demo.ps1`; run `npm run local:watch` in `web/` for ongoing callbacks. Use `-Port` for a separate instance or `-Reset` to clear a disposable Anvil.
@@ -89,7 +99,7 @@ Foundry 验收覆盖正常触发、错误事件拒绝、两端重放、跨日额
 
 | Evidence | Status |
 |---|---|
-| Contracts: 109 tests; frontend: 53 tests | ✅ local; CI workflow included |
+| Contract and frontend test suites | ✅ local; CI workflow included |
 | Local Anvil end-to-end (Transfer → react → callback → Split/Retained) | ✅ verified |
 | Demo mode / judge quick path | ✅ `?demo=1` |
 | PaydaySplit core Sepolia + Lasna deployment | ✅ [Verified single-bucket callback and payout](#最小分账闭环) |

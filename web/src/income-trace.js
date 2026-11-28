@@ -80,23 +80,28 @@ export function createIncomeTrace({ $, context, readReactive, readActivity, read
     addStep('Income received', `${units(source.amount)} · block ${source.block} · log ${source.logIndex}`,
       'done', demo ? '' : ctx.txLink(source.hash));
 
-    const requested = reactive.requested;
-    addStep('Reactive callback', requested === true ? 'Callback requested for this exact transfer.'
-      : requested === false ? 'No callback request was recorded for this transfer.'
-      : 'Could not read callback status.', requested === true ? 'done' : 'unknown',
-    demo || !reactive.txHash ? '' : ctx.reactiveTxLink(reactive.txHash));
+    const { requested, txHash } = reactive;
+    if (requested === true) {
+      const missingLink = !demo && !txHash ? ' The transaction link is unavailable from the recent log check.' : '';
+      addStep('Reactive request', 'Callback requested for this exact transfer.' + missingLink, 'done',
+        demo || !txHash ? '' : ctx.reactiveTxLink(txHash));
+    } else {
+      addStep('Reactive request', requested === false ? 'No callback request is recorded for this transfer.'
+        : 'Could not read callback status.', requested === false ? 'unrequested' : 'unknown');
+    }
 
-    const payout = destination.payout;
-    const paid = payout?.totalRouted;
-    const destinationMessage = payout
-      ? `${units(paid)} routed · ${units(payout.retained)} retained${payout.skipped ? ` · ${payout.skipped} skipped buckets` : ''}.`
-      : destination.processed === true
-        ? 'This transfer was marked processed. Matching payment logs were unavailable in recent history.'
-        : destination.processed === false
-          ? 'No payout has consumed this transfer yet.'
-          : 'Could not check whether the payout chain processed this transfer.';
-    addStep('Destination result', destinationMessage, destination.processed === true ? 'done' : 'unknown',
-      payout && !demo ? ctx.txLink(payout.txHash) : '');
+    const { payout, processed } = destination;
+    if (payout) {
+      const skipped = payout.skipped ? ` · ${payout.skipped} ${payout.skipped === 1 ? 'bucket' : 'buckets'} skipped` : '';
+      addStep('Destination result', `${units(payout.totalRouted)} routed · ${units(payout.retained)} retained${skipped}.`,
+        payout.skipped ? 'partial' : 'done', demo ? '' : ctx.txLink(payout.txHash));
+    } else if (processed === true) {
+      addStep('Destination result', 'This transfer was marked processed onchain. The recent log check did not verify payout amounts or a transaction link.',
+        'incomplete');
+    } else {
+      addStep('Destination result', processed === false ? 'The destination contract has not marked this transfer processed.'
+        : 'Could not check whether the payout chain processed this transfer.', processed === false ? 'unprocessed' : 'unknown');
+    }
 
     const retries = destination.retries;
     if (retries && (retries.jobs.length || retries.status !== 'checked')) {
@@ -164,9 +169,18 @@ export function createIncomeTrace({ $, context, readReactive, readActivity, read
           const head = BigInt(await ctx.provider.send('eth_blockNumber', []));
           const processed = await ctx.split.processed(keys.destination, { blockTag: head });
           if (processed) {
-            const groups = await readActivity({ head, publish: false });
-            const payout = matchedPayout(groups, income);
-            const retries = await readRetries(ctx, income, payout, head);
+            let payout = null;
+            try {
+              payout = matchedPayout(await readActivity({ head, publish: false }), income);
+            } catch {
+              // A failed log lookup does not change the contract's processed flag.
+            }
+            let retries;
+            try {
+              retries = await readRetries(ctx, income, payout, head);
+            } catch {
+              retries = { status: 'unavailable', jobs: [], paid: null, totals: null };
+            }
             return { processed, payout, retries };
           }
           const preview = await quoteFromChain(ctx, income, head).catch(() => null);

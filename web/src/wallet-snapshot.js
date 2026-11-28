@@ -1,4 +1,4 @@
-export async function readWalletSnapshot({ provider, account, token, split, tokenAddress, splitAddress }, afterBlock) {
+export async function readWalletBlock(provider, afterBlock) {
   let block = await provider.send('eth_getBlockByNumber', ['latest', false]);
   if (afterBlock !== undefined && (!block || BigInt(block.number) < BigInt(afterBlock))) {
     block = await provider.send('eth_getBlockByNumber', ['0x' + Number(afterBlock).toString(16), false]);
@@ -6,6 +6,11 @@ export async function readWalletSnapshot({ provider, account, token, split, toke
   if (!block?.number || !block.timestamp || (afterBlock !== undefined && BigInt(block.number) < BigInt(afterBlock))) {
     throw new Error('The wallet RPC has not reached the confirmed block. Refresh the plan to try again.');
   }
+  return block;
+}
+
+export async function readWalletSnapshot({ provider, account, token, split, tokenAddress, splitAddress }, afterBlock) {
+  const block = await readWalletBlock(provider, afterBlock);
   const at = { blockTag: block.number };
   const [
     balance, allowance, buckets, version, ids, allocationMode, cycle, policy, dailySpend,
